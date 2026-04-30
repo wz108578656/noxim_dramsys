@@ -1,0 +1,17 @@
+{
+    "simulation": {
+        "addressmapping": "/data/zhuo.wang/noxim_dramsys/configs/addressmapping/am_ddr4_8x4Gbx8_dimm_p1KB_brc.json",
+        "mcconfig": "/data/zhuo.wang/noxim_dramsys/configs/fr_fcfs.json",
+        "memspec": "/data/zhuo.wang/noxim_dramsys/configs/JEDEC_4Gb_DDR4-1866_8bit_A.json",
+        "simconfig": "/data/zhuo.wang/noxim_dramsys/configs/example.json",
+        "simulationid": "ddr4-example",
+        "tracesetup": [
+            {
+                "type": "player",
+                "clkMhz": 200,
+                "dataLength": 64,
+                "name": "traces/example.stl"
+            }
+        ]
+    }
+}
