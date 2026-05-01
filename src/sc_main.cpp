@@ -2,27 +2,19 @@
 // sc_main.cpp - Unified NoC + DRAM co-simulation entry point
 // ============================================================================
 //
-// Architecture (simplified — no NoC2DramBridge):
-//   HubInitiator.socket
-//     | .bind(dramIf.getUpstreamSocket())    ← binds to Passthrough.downstream
-//     | Passthrough captures Hub's bw if at end of elaboration
-//     v
-//   DramIf::Passthrough (sc_module, fw+bw tlm interfaces)
-//     | translates address (hub-local → DRAM)
-//     | calls ds->tSocket.b_transport / nb_transport_fw (registered callbacks)
-//     v
-//   DRAMSys (dramsys->tSocket = multi_passthrough_target_socket<DRAMSys>)
-//     | internal chain: tSocket→Arbiter→Controller→Dram
-//     v
-//   DRAMSys calls Passthrough.nb_transport_bw (via registered callback)
-//     → Passthrough forwards to Hub's bw if (captured at bind time).
+// Architecture:
+//   Mode 1 (default): Hub initiators (wireless) → Passthrough → DRAMSys
+//     - Used when use_winoc=true with configured Hub initiators
+//
+//   Mode 2 (--mem-traffic): MemTrafficManager → Passthrough → DRAMSys
+//     - 4 traffic generators (one per Hub) send interleaved memory traffic
+//     - Each generator cycles through all 6 channels for even distribution
+//     - Reports per-channel and aggregate bandwidth statistics
 //
 // Memory map:
-//   hub_id → DRAM address = BASE + hub_id * STRIDE + hub-local addr
+//   Channel stride = 0x20000000 (512MB per channel for 6-channel config)
+//   Channel n base = n * 0x20000000
 //
-// Verification mode (--verify-dram):
-//   Inject TLM read/write transactions directly into Passthrough downstream
-//   to validate the full Passthrough → Arbiter → Controller → Dram path.
 // ============================================================================
 
 #include <cstring>
@@ -34,6 +26,7 @@
 
 #include "DramInterface.h"
 #include "NoCInterface.h"
+#include "MemTrafficGen.h"
 #include "GlobalParams.h"
 #include "Initiator.h"
 
@@ -43,11 +36,15 @@ using namespace std;
 static void printUsage(const char* prog)
 {
     cerr << "Usage: " << prog << " [options]\n"
-         << "  --noxim-config <file>    Noxim YAML config (required)\n"
+         << "  --noxim-config <file>    Noxim YAML config (required for NoC mode)\n"
          << "  --dram-config  <file>    DRAMSys JSON config (required)\n"
-         << "  --dram-base   <addr>     DRAM base address (default: 0x1000000000)\n"
+         << "  --dram-base   <addr>     DRAM base address (default: 0x0)\n"
          << "  --dram-stride <n>        Address stride per hub (default: 0x100000)\n"
          << "  --cycles      <n>        Simulation cycles (0 = use config default)\n"
+         << "  --mem-traffic <n>        Memory bandwidth test with N Hubs (e.g., --mem-traffic 4)\n"
+         << "                           Replaces Hub initiators with MemTrafficManager\n"
+         << "  --injection-rate <rate>  Traffic injection rate (default: 0.02)\n"
+         << "  --num-channels <n>       Number of DRAM channels (default: 6)\n"
          << "  --help                  Show this help\n"
          << endl;
 }
@@ -66,6 +63,9 @@ int sc_main(int argc, char* argv[])
     string noximConfig, dramConfig, dramBase = "0x0";
     uint64_t dramStride = 0x100000ULL;
     int maxCycles = 0;
+    int memTrafficHubs = 0;  // 0 = no mem traffic mode
+    double injectionRate = 0.02;
+    int numDramChannels = 6;
 
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--help") == 0) {
@@ -81,6 +81,12 @@ int sc_main(int argc, char* argv[])
             dramStride = std::stoull(argv[++i], nullptr, 0);
         } else if (strcmp(argv[i], "--cycles") == 0 && i + 1 < argc) {
             maxCycles = std::stoi(argv[++i]);
+        } else if (strcmp(argv[i], "--mem-traffic") == 0 && i + 1 < argc) {
+            memTrafficHubs = std::stoi(argv[++i]);
+        } else if (strcmp(argv[i], "--injection-rate") == 0 && i + 1 < argc) {
+            injectionRate = std::stod(argv[++i]);
+        } else if (strcmp(argv[i], "--num-channels") == 0 && i + 1 < argc) {
+            numDramChannels = std::stoi(argv[++i]);
         } else {
             cerr << "Unknown option: " << argv[i] << endl;
             printUsage(argv[0]);
@@ -88,22 +94,24 @@ int sc_main(int argc, char* argv[])
         }
     }
 
-    if (noximConfig.empty() || dramConfig.empty()) {
-        cerr << "ERROR: --noxim-config and --dram-config are required" << endl;
+    if (dramConfig.empty()) {
+        cerr << "ERROR: --dram-config is required" << endl;
         printUsage(argv[0]);
         return 1;
     }
 
     cout << "\n--- Configuration ---" << endl;
-    cout << "  Noxim config:   " << noximConfig << endl;
+    cout << "  Noxim config:   " << (noximConfig.empty() ? "(none)" : noximConfig) << endl;
     cout << "  DRAMSys config: " << dramConfig << endl;
     cout << "  DRAM base:      " << dramBase << endl;
     cout << "  DRAM stride:    0x" << std::hex << dramStride << std::dec << endl;
+    cout << "  DRAM channels:  " << numDramChannels << endl;
+    if (memTrafficHubs > 0) {
+        cout << "  MEM traffic:    " << memTrafficHubs << " Hubs, rate=" << injectionRate << endl;
+    }
 
     // -------------------------------------------------------------------------
     // 1. Create DramInterface (owns DRAMSys + internal Passthrough bridge).
-    //    Passthrough registers fw+bw callbacks on DRAMSys.tSocket and binds
-    //    its upstream initiator to DRAMSys.tSocket.
     // -------------------------------------------------------------------------
     cout << "\n--- Creating DramInterface ---" << endl;
     DramIf::DramInterface dramIf("DramInterface",
@@ -117,69 +125,93 @@ int sc_main(int argc, char* argv[])
     }
 
     // -------------------------------------------------------------------------
-    // 2. Create NoCInterface (owns Noxim NoC + Hub initiators).
+    // 2a. Memory traffic mode: Create MemTrafficManager for bandwidth testing
     // -------------------------------------------------------------------------
-    cout << "\n--- Creating NoCInterface ---" << endl;
-    NoximIntegration::NoCInterface nocIf("NoCInterface");
+    DramIf::MemTrafficManager* trafficMgr = nullptr;
 
-    if (!nocIf.loadConfiguration(noximConfig)) {
-        cerr << "ERROR: NoCInterface configuration failed" << endl;
-        return 1;
-    }
+    if (memTrafficHubs > 0) {
+        cout << "\n--- Memory Traffic Bandwidth Test Mode ---" << endl;
+        cout << "  Creating " << memTrafficHubs << " memory traffic generators" << endl;
+        cout << "  Channel interleaving: " << numDramChannels << " channels" << endl;
+        cout << "  Injection rate: " << injectionRate << " tx/cycle" << endl;
 
-    // -------------------------------------------------------------------------
-    // 3. Bind Hub initiators directly to DramInterface's Passthrough downstream.
-    // -------------------------------------------------------------------------
-    cout << "\n--- Binding Hub initiators to DramInterface Passthrough ---" << endl;
-
-    auto& hubInitiators = nocIf.getHubInitiators();
-    int boundCount = 0;
-
-    if (hubInitiators.empty()) {
-        cout << "Note: No Hub initiators (wireless channels) in current config.\n"
-             << "      Standalone NoC simulation — no DRAM traffic expected.\n";
-    } else {
-        // Get Passthrough's downstream target socket.
         auto& passthroughSocket = dramIf.getUpstreamSocket();
 
-        for (auto& hubPair : hubInitiators) {
-            int hubId = hubPair.first;
-            for (auto& chPair : hubPair.second) {
-                int channel = chPair.first;
-                Initiator* initiator = chPair.second;
+        trafficMgr = new DramIf::MemTrafficManager(
+            "MemTrafficManager",
+            memTrafficHubs,
+            passthroughSocket,
+            injectionRate,
+            numDramChannels);
 
-                // Bind Hub initiator to Passthrough's downstream.
-                // Passthrough implements tlm_fw_transport_if (required by
-                // simple_target_socket) and will forward transactions to DRAMSys.
-                initiator->socket.bind(passthroughSocket);
+        // -------------------------------------------------------------------------
+        // 3. Run simulation with Noxim (for clock generation)
+        // -------------------------------------------------------------------------
+        cout << "\n--- Starting simulation (memory traffic mode) ---" << endl;
 
-                cout << "  Hub[" << hubId << "].init[" << channel
-                     << "] -> Passthrough" << endl;
-                ++boundCount;
-            }
+        // Run simulation (no Noxim needed in mem-traffic mode)
+        sc_start(maxCycles, SC_NS);
+
+        // Print bandwidth statistics
+        if (trafficMgr) {
+            trafficMgr->printAggregateStats();
         }
-        cout << "  Total bindings: " << boundCount << endl;
+    } else {
+        // -------------------------------------------------------------------------
+        // 2. Create NoCInterface (owns Noxim NoC + Hub initiators).
+        // -------------------------------------------------------------------------
+        cout << "\n--- Creating NoCInterface ---" << endl;
+        NoximIntegration::NoCInterface nocIf("NoCInterface");
+
+        if (!nocIf.loadConfiguration(noximConfig)) {
+            cerr << "ERROR: NoCInterface configuration failed" << endl;
+            return 1;
+        }
+
+        // -------------------------------------------------------------------------
+        // 3. Bind Hub initiators directly to DramInterface's Passthrough downstream.
+        // -------------------------------------------------------------------------
+        cout << "\n--- Binding Hub initiators to DramInterface Passthrough ---" << endl;
+
+        auto& hubInitiators = nocIf.getHubInitiators();
+        int boundCount = 0;
+
+        if (hubInitiators.empty()) {
+            cout << "Note: No Hub initiators (wireless channels) in current config.\n"
+                 << "      Use --mem-traffic N to generate memory bandwidth traffic.\n";
+        } else {
+            auto& passthroughSocket = dramIf.getUpstreamSocket();
+
+            for (auto& hubPair : hubInitiators) {
+                int hubId = hubPair.first;
+                for (auto& chPair : hubPair.second) {
+                    int channel = chPair.first;
+                    Initiator* initiator = chPair.second;
+                    initiator->socket.bind(passthroughSocket);
+                    cout << "  Hub[" << hubId << "].init[" << channel
+                         << "] -> Passthrough" << endl;
+                    ++boundCount;
+                }
+            }
+            cout << "  Total bindings: " << boundCount << endl;
+        }
+
+        // -------------------------------------------------------------------------
+        // 3c. DRAM Verification
+        // -------------------------------------------------------------------------
+        {
+            auto& passthroughSocket = dramIf.getUpstreamSocket();
+            DramIf::DramVerifier* verifier = new DramIf::DramVerifier(
+                "DramVerifier", passthroughSocket, dramIf, 0x1000, 0xDEADBEEF);
+            (void)verifier;
+        }
+
+        // -------------------------------------------------------------------------
+        // 4. Run simulation
+        // -------------------------------------------------------------------------
+        cout << "\n--- Starting simulation ---" << endl;
+        nocIf.run(maxCycles);
     }
-
-// -------------------------------------------------------------------------
-    // 3c. DRAM Verification: inject transactions directly into Passthrough
-    //     to validate the full Passthrough → Arbiter → Controller → Dram path.
-    // -------------------------------------------------------------------------
-    {
-        // Access Passthrough's downstream target socket for verification
-        auto& passthroughSocket = dramIf.getUpstreamSocket();
-
-        // Create a verification initiator that binds to Passthrough
-        DramIf::DramVerifier* verifier = new DramIf::DramVerifier(
-            "DramVerifier", passthroughSocket, dramIf, 0x1000, 0xDEADBEEF);
-        (void)verifier;  // owned by SystemC, deleted at end of simulation
-    }
-
-    // -------------------------------------------------------------------------
-    // 4. Run simulation
-    // -------------------------------------------------------------------------
-    cout << "\n--- Starting simulation ---" << endl;
-    nocIf.run(maxCycles);
 
     cout << "\n============================================" << endl;
     cout << "Simulation completed at " << sc_time_stamp() << endl;

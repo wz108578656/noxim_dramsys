@@ -119,6 +119,7 @@ file(GLOB NOXIM_DRAMSYS_SRCS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/NoCInterface.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/NoC2DramBridge.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/NoximPE.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/MemTrafficGen.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/sc_main.cpp"
 )
 

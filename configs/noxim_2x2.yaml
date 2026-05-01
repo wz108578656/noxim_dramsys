@@ -1,0 +1,21 @@
+# 2x2 Mesh NoC with 4 Hubs (1 PE per Hub)
+# Minimum mesh for bandwidth test
+
+# NOC & WIRED CONFIGURATION
+mesh_dim_x: 2
+mesh_dim_y: 2
+buffer_depth: 8
+flit_size: 32
+dyad_threshold: 0.5
+r2h_link_length: 2.0
+r2r_link_length: 1.0
+n_virtual_channels: 1
+
+# VERBOSITY
+verbose_mode: "OFF"
+trace_mode: 0
+
+# SIMULATION
+simulation_time: 100000
+stats_period: 100000
+detection_mode: 0
