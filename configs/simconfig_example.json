@@ -7,8 +7,8 @@
         "PowerAnalysis": false,
         "SimulationName": "example",
         "SimulationProgressBar": true,
-        "StoreMode": "NoStorage",
-        "UseMalloc": false,
+        "StoreMode": "Store",
+        "UseMalloc": true,
         "WindowSize": 1000,
         "TogglingRate": {
             "togglingRateRead": 0.5,

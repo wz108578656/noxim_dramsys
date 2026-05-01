@@ -63,7 +63,7 @@ int sc_main(int argc, char* argv[])
     // -------------------------------------------------------------------------
     // Parse command-line arguments
     // -------------------------------------------------------------------------
-    string noximConfig, dramConfig, dramBase = "0x1000000000";
+    string noximConfig, dramConfig, dramBase = "0x0";
     uint64_t dramStride = 0x100000ULL;
     int maxCycles = 0;
 
