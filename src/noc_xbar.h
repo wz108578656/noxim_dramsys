@@ -56,6 +56,10 @@ public:
     void setChannelShift(int shift) { m_chShift = shift; }
     int  channelShift() const { return m_chShift; }
 
+    // Force all traffic to a single output port (Mode A: baseline BW test)
+    void setForceOutput(int port) { m_forceOutput = port; m_forceEnable = true; }
+    void clearForceOutput()      { m_forceEnable = false; }
+
     // Statistics
     uint64_t routedCount(int channel) const { return m_routed[channel]; }
 
@@ -73,6 +77,10 @@ private:
 
     // Channel bit shift for routing (DDR4=12, LPDDR4=30)
     int  m_chShift = 28;  // default: legacy [29:28]
+
+    // Force-output mode (Mode A: all traffic to one channel)
+    int  m_forceOutput = 0;
+    bool m_forceEnable = false;
 
     // Per-output routed counter
     uint64_t m_routed[XBAR_PORTS];

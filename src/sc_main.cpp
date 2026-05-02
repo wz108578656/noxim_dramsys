@@ -135,6 +135,7 @@ int sc_main(int argc, char** argv)
     xbar.clock(noc_clk);
     xbar.reset(noc_rst);
     xbar.setChannelShift(chShift);
+    if (args.modeA) xbar.setForceOutput(0);
 
     // ---- DRAM Channels (bind directly to DRAMSys::tSocket — AT protocol) ----
     vector<unique_ptr<DramChannel>> dramCh;
@@ -152,10 +153,9 @@ int sc_main(int argc, char** argv)
         uint32_t base_addr;
 
         if (args.modeA) {
-            // Mode A: all PEs target CH0 → base stays below channel boundary
-            // chShift = 12 (DDR4) or 30 (LPDDR4); mask is (1<<chShift)-1
-            uint32_t chMask = (1u << chShift) - 1;
-            base_addr = (static_cast<uint32_t>(pe) * 0x1000) & chMask;
+            // Mode A: all PEs target CH0 (crossbar forces output 0).
+            // Use large stride to avoid sequential address collision within CH0.
+            base_addr = static_cast<uint32_t>(pe) * 0x10000;
         } else {
             // Mode B: each PE targets its own channel at bits [chShift+1:chShift]
             // DDR4: pe<<12 → CH0=0x0000, CH1=0x1000, CH2=0x2000, CH3=0x3000

@@ -72,13 +72,20 @@ void NoCXbar::routeProcess()
             MemTransaction* tx = m_input[in_port].front();
 
             // Extract target channel from address bits [chShift+1:chShift]
-            int target_ch = static_cast<int>((tx->address >> m_chShift) & 0x3);
+            int target_ch = m_forceEnable ? m_forceOutput :
+                            static_cast<int>((tx->address >> m_chShift) & 0x3);
 
             if (target_ch != out_port)
                 continue;
 
             // Match found — route this flit
             m_input[in_port].pop();
+
+            // In force mode, set channel bits to the forced output for DRAMSys decode
+            if (m_forceEnable) {
+                tx->address &= ~(0x3ULL << m_chShift);
+                tx->address |= (static_cast<uint64_t>(m_forceOutput) << m_chShift);
+            }
 
             // Keep channel bits in address — DRAMSys uses them for channel decode
 
