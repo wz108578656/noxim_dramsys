@@ -1,7 +1,7 @@
 {
     "simulation": {
         "addressmapping": "memspec_ddr4_4ch/am_ddr4_4ch.json",
-        "mcconfig": "fr_fcfs.json",
+        "mcconfig": "mcconfig_ddr4_tuned.json",
         "memspec": "memspec_ddr4_4ch/memspec_ddr4_4ch.json",
         "simconfig": "simconfig_example.json",
         "simulationid": "ddr4-4ch"
