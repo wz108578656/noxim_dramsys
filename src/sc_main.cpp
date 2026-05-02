@@ -199,13 +199,17 @@ int sc_main(int argc, char** argv)
         }
     }
 
-    // Wait for DRAMSys internal pipeline to drain (END_RESP processing,
-    // controller idle). DramChannels may be done but DRAMSys still has
-    // pending PEQ events.
-    cout << "  [Drain] Waiting for DRAMSys pipeline to drain..." << endl;
-    for (int drain = 0; drain < 100; ++drain) {
+    // Wait for DRAMSys internal pipeline to drain AND all DramChannel
+    // pending transactions to complete.
+    cout << "  [Drain] Waiting for pipeline to drain..." << endl;
+    for (int drain = 0; drain < 200; ++drain) {
         sc_start(sc_time(100, SC_NS));
-        if (dramIf.getDramsys()->idle()) break;
+        bool allIdle = dramIf.getDramsys()->idle();
+        bool noPending = true;
+        for (int ch = 0; ch < 4; ++ch) {
+            if (dramCh[ch]->hasPending()) noPending = false;
+        }
+        if (allIdle && noPending) break;
     }
 
     double sim_time_ns = sc_time_stamp().to_seconds() * 1e9;

@@ -1,16 +1,15 @@
 // ============================================================================
-// dram_channel.cpp — DRAM channel: NoC → DRAMSys AT protocol
+// dram_channel.cpp — DRAM channel: NoC → DRAMSys pipelined AT protocol
 // ============================================================================
-// Uses tagged simple_initiator_socket with tag = channel index.
-// The tag becomes the thread ID in DRAMSys's Arbiter.
+// Pipelined: sends transactions without waiting for responses. Responses
+// arrive in FIFO order via nb_transport_bw. A pending deque tracks
+// in-flight transactions; maxInFlight limits concurrency.
 //
-// AT protocol flow (same as DRAMSys RequestIssuer):
-//   1. Heap-alloc tlm_generic_payload + set_mm(&m_mm)
-//   2. m_ini->nb_transport_fw(BEGIN_REQ, tag) — DRAMSys internally acquire()
-//   3. m_transportDone.wait() — block until response
-//   4. nb_transport_bw(tag, BEGIN_RESP) → send END_RESP, post semaphore
-//   5. DRAMSys PEQ handles END_RESP: release() → SimpleMM::free (no-op)
-//   6. process() wakes up, delete trans
+// Transaction lifecycle:
+//   - process() creates trans with set_mm(m_mm), sends BEGIN_REQ
+//   - Arbiter/Controller acquire/release transaction via refcount
+//   - When refcount reaches 0, SystemC calls m_mm->free(trans) → delete
+//   - process() only deletes MemTransaction (tx), NOT tlm_generic_payload
 // ============================================================================
 #include "dram_channel.h"
 #include "noc_xbar.h"
@@ -29,12 +28,12 @@ DramChannel::DramChannel(sc_module_name name, int channel, NoCXbar* xbar)
     , m_xbar(xbar)
     , m_completed(0)
     , m_bytes(0)
+    , m_mm(new SimpleMM())  // heap: outlives DramChannel for shutdown safety
 {
-    // Register backward callback with tag = channel index
     m_ini.register_nb_transport_bw(this, &DramChannel::nb_transport_bw, m_tag);
     SC_THREAD(process);
-    cout << "  [DramChannel " << channel << "] Created (AT tagged, tag="
-         << m_tag << ", direct to DRAMSys::tSocket)" << endl;
+    cout << "  [DramChannel " << channel << "] Created (AT pipelined, tag="
+         << m_tag << ", maxInFlight=" << m_maxInFlight << ")" << endl;
 }
 
 void DramChannel::bindToDramsys(
@@ -49,13 +48,29 @@ void DramChannel::bindToDramsys(
 void DramChannel::process()
 {
     while (true) {
-        MemTransaction* tx = nullptr;
 
+        // Clean up completed MemTransactions.
+        // tlm_generic_payload is managed by SimpleMM::free() — never delete here.
+        while (!m_doneQueue.empty()) {
+            PendingTx& p = m_doneQueue.front();
+            m_completed++;
+            m_bytes += p.tx->data_len;
+            delete p.tx;          // only delete the MemTransaction wrapper
+            // p.trans is managed by SimpleMM — do NOT delete
+            m_doneQueue.pop_front();
+        }
+
+        // Backpressure: don't exceed max in-flight limit
+        if (static_cast<int>(m_pending.size()) >= m_maxInFlight) {
+            wait(m_pendingSlot);
+            continue;
+        }
+
+        MemTransaction* tx = nullptr;
         if (m_xbar->popOutput(m_channel, tx)) {
 
-            // Heap-allocate payload with memory manager for AT protocol
             auto* trans = new tlm_generic_payload();
-            trans->set_mm(&m_mm);
+            trans->set_mm(m_mm);   // SimpleMM handles deletion via refcount
 
             trans->set_command(tx->is_write ? TLM_WRITE_COMMAND : TLM_READ_COMMAND);
             trans->set_address(tx->address);
@@ -65,30 +80,11 @@ void DramChannel::process()
             trans->set_byte_enable_length(0);
             trans->set_dmi_allowed(false);
 
-            // AT forward path — tag = channel → Arbiter thread ID
             tlm_phase phase = BEGIN_REQ;
             sc_time delay = SC_ZERO_TIME;
-            m_transactionPending = true;
+            m_ini->nb_transport_fw(*trans, phase, delay);
 
-            tlm_sync_enum sync = m_ini->nb_transport_fw(*trans, phase, delay);
-
-            if (sync == TLM_ACCEPTED) {
-                // Standard AT path: wait for nb_transport_bw callback
-                m_transportDone.wait();
-            }
-
-            m_transactionPending = false;
-
-            if (trans->is_response_error()) {
-                cerr << "  [DramChannel " << m_channel
-                     << "] ERROR: transaction failed" << endl;
-            }
-
-            delete trans;
-
-            m_completed++;
-            m_bytes += tx->data_len;
-            delete tx;
+            m_pending.push_back({trans, tx});
 
         } else {
             wait(sc_time(1, SC_NS));
@@ -105,10 +101,20 @@ tlm_sync_enum DramChannel::nb_transport_bw(int /*tag*/,
         return TLM_ACCEPTED;
     }
     else if (phase == BEGIN_RESP) {
+        // Send END_RESP back (release will be called by Arbiter PEQ)
         tlm_phase end_phase = END_RESP;
         sc_time end_delay = SC_ZERO_TIME;
         m_ini->nb_transport_fw(trans, end_phase, end_delay);
-        m_transportDone.post();
+
+        // Move from pending to doneQueue for MemTransaction cleanup.
+        // tlm_generic_payload deletion happens via SimpleMM::free()
+        // when SystemC refcount reaches 0 after END_RESP processing.
+        if (!m_pending.empty()) {
+            m_doneQueue.push_back(m_pending.front());
+            m_pending.pop_front();
+            m_pendingSlot.notify(SC_ZERO_TIME);
+        }
+
         return TLM_COMPLETED;
     }
     return TLM_ACCEPTED;
