@@ -44,7 +44,7 @@ void DramChannel::process()
 
             // ---- Build TLM transaction ----
             tlm_generic_payload trans;
-            trans.set_command(TLM_WRITE_COMMAND);
+            trans.set_command(tx->is_write ? TLM_WRITE_COMMAND : TLM_READ_COMMAND);
             trans.set_address(tx->address);
             trans.set_data_ptr(reinterpret_cast<unsigned char*>(tx->data));
             trans.set_data_length(tx->data_len);

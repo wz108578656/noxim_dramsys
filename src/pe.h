@@ -22,7 +22,8 @@ public:
     SC_HAS_PROCESS(PE);
 
     PE(sc_module_name name, int pe_id, NoCXbar* xbar,
-        int num_tx, uint32_t base_addr, double inj_rate_ns);
+        int num_tx, uint32_t base_addr, double inj_rate_ns,
+        bool is_read = false);
 
     // Statistics
     uint64_t tx_sent() const { return m_tx_sent; }
@@ -37,6 +38,7 @@ private:
     uint32_t m_base_addr;
     sc_time m_inj_interval;
     uint64_t m_tx_sent;
+    bool m_is_read;
 };
 
 #endif // PE_H

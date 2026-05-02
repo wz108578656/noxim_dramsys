@@ -48,6 +48,7 @@ struct Args {
     bool   modeA        = false;   // all PEs → single channel
     bool   modeB        = true;    // each PE → dedicated channel (default)
     bool   lpddr4       = false;   // use LPDDR4 channel bits [31:30]
+    bool   is_read      = false;   // READ instead of WRITE
     int    maxCycles    = 100000;
 };
 
@@ -63,6 +64,7 @@ static Args parseArgs(int argc, char** argv)
         else if (arg == "--noc-mode-a") args.modeA = true;
         else if (arg == "--noc-mode-b") args.modeB = true;
         else if (arg == "--lpddr4") args.lpddr4 = true;
+        else if (arg == "--noc-read") args.is_read = true;
         else if (arg == "--max-cycles" && i + 1 < argc) args.maxCycles = atoi(argv[++i]);
         else if (arg == "-h" || arg == "--help") {
             cout << "Usage: " << argv[0] << " --dram-config <json> --noc-mode [opts]\n"
@@ -72,6 +74,7 @@ static Args parseArgs(int argc, char** argv)
                  << "  --noc-mode-a       All PEs → single channel (1× BW)\n"
                  << "  --noc-mode-b       Each PE → own channel (4× BW, default)\n"
                  << "  --lpddr4           Use LPDDR4 channel bits [31:30] (default DDR4 [13:12])\n"
+                 << "  --noc-read         Use READ commands (default WRITE)\n"
                  << "  --max-cycles <N>   Max simulation cycles (default 100000)\n"
                  << "\n  DRAM timing: AT protocol via DRAMSys internal scheduler\n"
                  << "  (tRCD, tCL, tRP, bank conflicts modeled by DRAMSys)\n"
@@ -147,7 +150,8 @@ int sc_main(int argc, char** argv)
 
         auto p = make_unique<PE>(
             sc_module_name(("PE" + to_string(pe)).c_str()),
-            pe, &xbar, args.nocTx, base_addr, args.nocRate);
+            pe, &xbar, args.nocTx, base_addr, args.nocRate,
+            args.is_read);
         pes.push_back(move(p));
     }
 
