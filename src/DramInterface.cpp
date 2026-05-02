@@ -54,6 +54,7 @@ DramInterface::DramInterface(sc_core::sc_module_name name,
             return;
         }
 
+        // Register b_transport on upstream sockets for verifyRead
         m_upstream[0].register_b_transport(this, &DramInterface::b_transport_ch0);
         m_upstream[1].register_b_transport(this, &DramInterface::b_transport_ch1);
         m_upstream[2].register_b_transport(this, &DramInterface::b_transport_ch2);
@@ -62,7 +63,7 @@ DramInterface::DramInterface(sc_core::sc_module_name name,
         m_configured = true;
         std::cout << "  [DramInterface] DRAMSys initialized OK" << std::endl;
         std::cout << "  [DramInterface] " << NUM_CHANNELS
-                  << " upstream sockets ready (dedicated, no interleaving)" << std::endl;
+                  << " upstream sockets ready" << std::endl;
 
     } catch (const std::exception& e) {
         std::cerr << "  [DramInterface] EXCEPTION: " << e.what() << std::endl;
@@ -81,6 +82,10 @@ DramInterface::~DramInterface()
     }
 }
 
+// ============================================================================
+// Blocking forward — each upstream socket's b_transport callback
+// ============================================================================
+
 void DramInterface::forwardToDramsys(int channel,
                                       tlm_generic_payload& trans,
                                       sc_time& delay)
@@ -91,9 +96,7 @@ void DramInterface::forwardToDramsys(int channel,
         return;
     }
 
-    // Apply channel offset for dedicated (no-interleaving) mode.
-    // Translate PE-local address to global DRAM address using configurable
-    // channel bit position (DDR4=12, LPDDR4=30).
+    // Apply channel offset for DRAMSys address mapping
     uint64_t origAddr = trans.get_address();
     uint64_t chMask = (0x3ULL << m_channelShift);
     uint64_t chanAddr = (static_cast<uint64_t>(channel) << m_channelShift)
@@ -104,31 +107,6 @@ void DramInterface::forwardToDramsys(int channel,
 
     // Restore original address (transparent to caller)
     trans.set_address(origAddr);
-}
-
-bool DramInterface::verifyRead(int channel, uint64_t addr,
-                                 void* data, unsigned int len)
-{
-    if (!m_dramsys) return false;
-
-    // Apply channel offset for DRAMSys address mapping
-    uint64_t chMask = (0x3ULL << m_channelShift);
-    uint64_t chanAddr = (static_cast<uint64_t>(channel) << m_channelShift)
-                      | (addr & ~chMask);
-
-    tlm::tlm_generic_payload trans;
-    trans.set_command(tlm::TLM_READ_COMMAND);
-    trans.set_address(chanAddr);
-    trans.set_data_ptr(reinterpret_cast<unsigned char*>(data));
-    trans.set_data_length(len);
-    trans.set_byte_enable_ptr(nullptr);
-    trans.set_byte_enable_length(0);
-    trans.set_dmi_allowed(false);
-
-    sc_core::sc_time delay = sc_core::SC_ZERO_TIME;
-    m_dramsys->b_transport(trans, delay);
-
-    return !trans.is_response_error();
 }
 
 void DramInterface::b_transport_ch0(tlm::tlm_generic_payload& trans,
@@ -144,8 +122,36 @@ void DramInterface::b_transport_ch3(tlm::tlm_generic_payload& trans,
                                      sc_core::sc_time& delay)
 { forwardToDramsys(3, trans, delay); }
 
+// ============================================================================
+// verifyRead — direct blocking read for data verification
+// ============================================================================
+
+bool DramInterface::verifyRead(int channel, uint64_t addr,
+                                 void* data, unsigned int len)
+{
+    if (!m_dramsys) return false;
+
+    uint64_t chMask = (0x3ULL << m_channelShift);
+    uint64_t chanAddr = (static_cast<uint64_t>(channel) << m_channelShift)
+                      | (addr & ~chMask);
+
+    tlm_generic_payload trans;
+    trans.set_command(TLM_READ_COMMAND);
+    trans.set_address(chanAddr);
+    trans.set_data_ptr(reinterpret_cast<unsigned char*>(data));
+    trans.set_data_length(len);
+    trans.set_byte_enable_ptr(nullptr);
+    trans.set_byte_enable_length(0);
+    trans.set_dmi_allowed(false);
+
+    sc_time delay = SC_ZERO_TIME;
+    m_dramsys->b_transport(trans, delay);
+
+    return !trans.is_response_error();
+}
+
 // ========================================================================
-// DramVerifier implementation
+// DramVerifier
 // ========================================================================
 
 DramVerifier::DramVerifier(sc_core::sc_module_name name,
@@ -157,7 +163,6 @@ DramVerifier::DramVerifier(sc_core::sc_module_name name,
     , m_testData(testData)
 {
     std::cout << "  [DramVerifier] Binding to upstream target socket..." << std::endl;
-    // Tagged socket: 4-param nb_transport_bw
     m_ini.register_nb_transport_bw(this, &DramVerifier::nb_transport_bw, 0);
     m_ini.bind(targetSocket);
     std::cout << "  [DramVerifier] Bound successfully." << std::endl;
@@ -169,7 +174,6 @@ void DramVerifier::verification_process()
 {
     std::cout << "  [DramVerifier] Starting DRAM path verification..." << std::endl;
 
-    // WRITE — AT protocol via operator-> (synchronous path).
     uint32_t wdata = m_testData;
     tlm_generic_payload wtrans;
     wtrans.set_command(TLM_WRITE_COMMAND);
@@ -185,14 +189,11 @@ void DramVerifier::verification_process()
     sc_time delay = SC_ZERO_TIME;
     tlm_sync_enum sync = m_ini->nb_transport_fw(wtrans, phase, delay);
     if (sync == tlm::TLM_UPDATED && phase == tlm::END_RESP) {
-        // Fast path: response already in same call stack.
     } else {
-        // AT path: wait for END_RESP via bw callback.
         m_transportDone.wait();
     }
     std::cout << "  [DramVerifier] WRITE done (latency=" << delay << ")" << std::endl;
 
-    // READ back
     uint32_t rdata = 0;
     tlm_generic_payload rtrans;
     rtrans.set_command(TLM_READ_COMMAND);
@@ -208,13 +209,11 @@ void DramVerifier::verification_process()
     delay = SC_ZERO_TIME;
     sync = m_ini->nb_transport_fw(rtrans, phase, delay);
     if (sync == tlm::TLM_UPDATED && phase == tlm::END_RESP) {
-        // Fast path.
     } else {
         m_transportDone.wait();
     }
     std::cout << "  [DramVerifier] READ done (latency=" << delay << ")" << std::endl;
 
-    // Verify
     if (rdata == m_testData) {
         std::cout << "  [DramVerifier] VERIFY PASSED (0x" << std::hex << m_testData
                   << std::dec << ")" << std::endl;
@@ -230,7 +229,6 @@ tlm_sync_enum DramVerifier::nb_transport_bw(int /*tag*/,
                                              sc_time& /*t*/)
 {
     if (phase == BEGIN_RESP) {
-        // Send END_RESP to complete AT handshake
         tlm_phase end_phase = END_RESP;
         sc_time end_delay = SC_ZERO_TIME;
         m_ini->nb_transport_fw(trans_arg, end_phase, end_delay);

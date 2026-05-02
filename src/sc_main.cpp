@@ -165,15 +165,17 @@ int sc_main(int argc, char** argv)
     sc_start(10, SC_NS);
     noc_rst.write(0);
 
-    // Wait for all PEs to finish
-    sc_time poll_interval(1, SC_US);
+    // Run until all DramChannels complete their transactions
+    sc_time poll_interval(10, SC_US);
     sc_time timeout(args.maxCycles * args.clockPeriod, SC_NS);
     sc_time t0 = sc_time_stamp();
 
     while (true) {
+        sc_start(poll_interval);
+
         bool allDone = true;
-        for (auto& p : pes) {
-            if (p->tx_sent() < static_cast<uint64_t>(args.nocTx))
+        for (int ch = 0; ch < 4; ++ch) {
+            if (dramCh[ch]->completed() < static_cast<uint64_t>(args.nocTx))
                 allDone = false;
         }
         if (allDone) break;
@@ -181,21 +183,6 @@ int sc_main(int argc, char** argv)
             cout << "\n[TIMEOUT] Simulation stopped at " << sc_time_stamp() << endl;
             break;
         }
-        sc_start(poll_interval);
-    }
-
-    // Drain remaining transactions in crossbar and DRAM channels
-    sc_time drain_start = sc_time_stamp();
-    while (true) {
-        bool allIdle = true;
-        for (int ch = 0; ch < 4; ++ch) {
-            if (xbar.routedCount(ch) > dramCh[ch]->completed())
-                allIdle = false;
-        }
-        if (allIdle) break;
-        if ((sc_time_stamp() - drain_start) > sc_time(10, SC_MS))
-            break;
-        sc_start(100, SC_NS);
     }
 
     double sim_time_ns = sc_time_stamp().to_seconds() * 1e9;
@@ -223,7 +210,7 @@ int sc_main(int argc, char** argv)
     cout << "  ----------------------------------------" << endl;
     cout << "  Total:      " << totalBytes << " bytes, "
          << fixed << setprecision(2) << totalBW << " GB/s" << endl;
-    cout << "  (Timing: DRAMSys AT protocol — tRCD/tCL/tRP/bank conflicts)" << endl;
+    cout << "  (Timing: DRAMSys AT cycle-accurate — scheduler tRCD/tCL/tRP/bank conflicts)" << endl;
     cout << "========================================================\n" << endl;
 
     // ---- Data consistency check ----
