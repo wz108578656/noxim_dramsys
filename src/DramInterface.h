@@ -58,6 +58,9 @@ public:
         return m_upstream[channel];
     }
 
+    // Direct blocking read for data verification (bypasses socket binding)
+    bool verifyRead(int channel, uint64_t addr, void* data, unsigned int len);
+
     ::DRAMSys::DRAMSys* getDramsys() const { return m_dramsys; }
 
 private:

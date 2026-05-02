@@ -106,6 +106,31 @@ void DramInterface::forwardToDramsys(int channel,
     trans.set_address(origAddr);
 }
 
+bool DramInterface::verifyRead(int channel, uint64_t addr,
+                                 void* data, unsigned int len)
+{
+    if (!m_dramsys) return false;
+
+    // Apply channel offset for DRAMSys address mapping
+    uint64_t chMask = (0x3ULL << m_channelShift);
+    uint64_t chanAddr = (static_cast<uint64_t>(channel) << m_channelShift)
+                      | (addr & ~chMask);
+
+    tlm::tlm_generic_payload trans;
+    trans.set_command(tlm::TLM_READ_COMMAND);
+    trans.set_address(chanAddr);
+    trans.set_data_ptr(reinterpret_cast<unsigned char*>(data));
+    trans.set_data_length(len);
+    trans.set_byte_enable_ptr(nullptr);
+    trans.set_byte_enable_length(0);
+    trans.set_dmi_allowed(false);
+
+    sc_core::sc_time delay = sc_core::SC_ZERO_TIME;
+    m_dramsys->b_transport(trans, delay);
+
+    return !trans.is_response_error();
+}
+
 void DramInterface::b_transport_ch0(tlm::tlm_generic_payload& trans,
                                      sc_core::sc_time& delay)
 { forwardToDramsys(0, trans, delay); }
