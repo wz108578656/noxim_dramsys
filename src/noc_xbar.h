@@ -52,6 +52,10 @@ public:
     // ---- DramChannel interface (called from DramChannel SC_THREAD) ----
     bool popOutput(int channel, MemTransaction*& tx);
 
+    // Configurable channel bit position (set before simulation)
+    void setChannelShift(int shift) { m_chShift = shift; }
+    int  channelShift() const { return m_chShift; }
+
     // Statistics
     uint64_t routedCount(int channel) const { return m_routed[channel]; }
 
@@ -66,6 +70,9 @@ private:
 
     // Round-robin pointer per output port
     int  m_rr[XBAR_PORTS];
+
+    // Channel bit shift for routing (DDR4=12, LPDDR4=30)
+    int  m_chShift = 28;  // default: legacy [29:28]
 
     // Per-output routed counter
     uint64_t m_routed[XBAR_PORTS];

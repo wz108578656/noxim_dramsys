@@ -8,16 +8,21 @@
 //   Mode B (each PE → dedicated channel, 4× BW):
 //     ./noxim_dramsys --dram-config <json> --noc-mode --noc-tx 1000 --noc-mode-b
 //
-// Address mapping:
-//   channel = (addr >> 28) & 0x3
-//   CH0: 0x00000000 ~ 0x0FFFFFFF   CH1: 0x10000000 ~ 0x1FFFFFFF
-//   CH2: 0x20000000 ~ 0x2FFFFFFF   CH3: 0x30000000 ~ 0x3FFFFFFF
+// Address mapping (respects DRAMSys address mapping config):
+//   DDR4  (am_ddr4_4ch.json):  channel = (addr >> 12) & 0x3, bits 13:12
+//   LPDDR4 (am_lpddr4_4ch.json): channel = (addr >> 30) & 0x3, bits 31:30
+//   Mode B: CH0=0x0000, CH1=chShift<<1, CH2=chShift<<2, CH3=chShift<<3
 //
 // Architecture:
-//   PE[0] ──► inFIFO[0] ──┐                    ┌── outFIFO[0] ──► DramCh[0] ──► DRAMSys ch0
-//   PE[1] ──► inFIFO[1] ──┤  NoCXbar (SC_METHOD)├── outFIFO[1] ──► DramCh[1] ──► DRAMSys ch1
-//   PE[2] ──► inFIFO[2] ──┤  每周期路由+仲裁      ├── outFIFO[2] ──► DramCh[2] ──► DRAMSys ch2
-//   PE[3] ──► inFIFO[3] ──┘                    └── outFIFO[3] ──► DramCh[3] ──► DRAMSys ch3
+//   PE[0] ──► inFIFO[0] ──┐                    ┌── outFIFO[0] ──► DramCh[0] ──┐
+//   PE[1] ──► inFIFO[1] ──┤  NoCXbar (SC_METHOD)├── outFIFO[1] ──► DramCh[1] ──┤
+//   PE[2] ──► inFIFO[2] ──┤  每周期路由+仲裁      ├── outFIFO[2] ──► DramCh[2] ──┤  DRAMSys::tSocket
+//   PE[3] ──► inFIFO[3] ──┘                    └── outFIFO[3] ──► DramCh[3] ──┘  (AT protocol)
+//
+//   DramChannel uses AT protocol (nb_transport_fw) directly into
+//   DRAMSys::tSocket — the standard DRAMSys RequestIssuer pattern.
+//   DRAMSys internal scheduler provides cycle-accurate DRAM timing
+//   (tRCD, tCL, tRP, bank conflicts, refresh, etc.).
 // ============================================================================
 
 #include <systemc.h>
@@ -118,6 +123,10 @@ int sc_main(int argc, char** argv)
         return 1;
     }
 
+    // Tell DRAMSys how many external AT initiator threads to expect.
+    // Arbiter needs this before sc_start() to size its internal vectors.
+    dramIf.getDramsys()->setThreadCount(4);
+
     // ---- NoC Crossbar ----
     sc_clock noc_clk("noc_clk", args.clockPeriod, SC_NS);
     sc_signal<bool> noc_rst("noc_rst");
@@ -125,14 +134,15 @@ int sc_main(int argc, char** argv)
     NoCXbar xbar("NoCXbar");
     xbar.clock(noc_clk);
     xbar.reset(noc_rst);
+    xbar.setChannelShift(chShift);
 
-    // ---- DRAM Channels ----
+    // ---- DRAM Channels (bind directly to DRAMSys::tSocket — AT protocol) ----
     vector<unique_ptr<DramChannel>> dramCh;
     for (int ch = 0; ch < 4; ++ch) {
         auto dc = make_unique<DramChannel>(
             sc_module_name(("DramCh" + to_string(ch)).c_str()),
             ch, &xbar);
-        dc->bindToDram(dramIf.getUpstreamSocket(ch));
+        dc->bindToDramsys(dramIf.getDramsys()->getArbiterTargetSocket(), ch);
         dramCh.push_back(move(dc));
     }
 
@@ -142,19 +152,21 @@ int sc_main(int argc, char** argv)
         uint32_t base_addr;
 
         if (args.modeA) {
-            // Mode A: all PEs target CH0 → base = 0x00000000, PE-offset pages
-            base_addr = static_cast<uint32_t>(pe) * 0x1000;  // 4KB apart
+            // Mode A: all PEs target CH0 → base stays below channel boundary
+            // chShift = 12 (DDR4) or 30 (LPDDR4); mask is (1<<chShift)-1
+            uint32_t chMask = (1u << chShift) - 1;
+            base_addr = (static_cast<uint32_t>(pe) * 0x1000) & chMask;
         } else {
-            // Mode B: each PE targets its own channel
-            // Channel encoding: (addr >> 28) & 0x3
-            // CH0=0x00000000, CH1=0x10000000, CH2=0x20000000, CH3=0x30000000
-            base_addr = static_cast<uint32_t>(pe) << 28;
+            // Mode B: each PE targets its own channel at bits [chShift+1:chShift]
+            // DDR4: pe<<12 → CH0=0x0000, CH1=0x1000, CH2=0x2000, CH3=0x3000
+            // LPDDR4: pe<<30 → CH0=0x00000000, CH1=0x40000000, CH2=0x80000000, CH3=0xC0000000
+            base_addr = static_cast<uint32_t>(pe) << chShift;
         }
 
         auto p = make_unique<PE>(
             sc_module_name(("PE" + to_string(pe)).c_str()),
             pe, &xbar, args.nocTx, base_addr, args.nocRate,
-            args.is_read);
+            args.is_read, args.lpddr4 ? 32 : 64);
         pes.push_back(move(p));
     }
 
@@ -175,7 +187,9 @@ int sc_main(int argc, char** argv)
 
         bool allDone = true;
         for (int ch = 0; ch < 4; ++ch) {
-            if (dramCh[ch]->completed() < static_cast<uint64_t>(args.nocTx))
+            // Mode A: only channel 0 receives traffic; others stay at 0
+            int expectedTx = args.modeA ? (ch == 0 ? args.nocTx * 4 : 0) : args.nocTx;
+            if (dramCh[ch]->completed() < static_cast<uint64_t>(expectedTx))
                 allDone = false;
         }
         if (allDone) break;
@@ -183,6 +197,15 @@ int sc_main(int argc, char** argv)
             cout << "\n[TIMEOUT] Simulation stopped at " << sc_time_stamp() << endl;
             break;
         }
+    }
+
+    // Wait for DRAMSys internal pipeline to drain (END_RESP processing,
+    // controller idle). DramChannels may be done but DRAMSys still has
+    // pending PEQ events.
+    cout << "  [Drain] Waiting for DRAMSys pipeline to drain..." << endl;
+    for (int drain = 0; drain < 100; ++drain) {
+        sc_start(sc_time(100, SC_NS));
+        if (dramIf.getDramsys()->idle()) break;
     }
 
     double sim_time_ns = sc_time_stamp().to_seconds() * 1e9;

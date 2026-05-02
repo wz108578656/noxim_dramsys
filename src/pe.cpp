@@ -9,11 +9,12 @@ using namespace std;
 
 PE::PE(sc_module_name name, int pe_id, NoCXbar* xbar,
        int num_tx, uint32_t base_addr, double inj_rate_ns,
-       bool is_read)
+       bool is_read, int data_len)
     : sc_module(name)
     , m_pe_id(pe_id)
     , m_xbar(xbar)
     , m_num_tx(num_tx)
+    , m_data_len(data_len)
     , m_base_addr(base_addr)
     , m_inj_interval(inj_rate_ns, SC_NS)
     , m_tx_sent(0)
@@ -37,9 +38,9 @@ void PE::run()
 
         // Allocate transaction on heap (DramChannel deletes after processing)
         MemTransaction* tx = new MemTransaction();
-        tx->address  = m_base_addr + static_cast<uint32_t>(i) * 64;
+        tx->address  = m_base_addr + static_cast<uint32_t>(i) * m_data_len;
         tx->is_write = !m_is_read;
-        tx->data_len = 64;
+        tx->data_len = m_data_len;
         tx->pe_id    = m_pe_id;
         tx->tag      = i;
 

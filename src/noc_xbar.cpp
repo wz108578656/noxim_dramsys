@@ -20,7 +20,7 @@ NoCXbar::NoCXbar(sc_module_name name)
     sensitive << clock.pos();
 
     cout << "[NoCXbar] 4x4 non-blocking crossbar created"
-         << " (channel bits at addr[29:28])" << endl;
+         << " (channel bits configurable, default addr[" << (m_chShift+1) << ":" << m_chShift << "])" << endl;
 }
 
 // ============================================================================
@@ -71,8 +71,8 @@ void NoCXbar::routeProcess()
 
             MemTransaction* tx = m_input[in_port].front();
 
-            // Extract target channel from address bits [29:28]
-            int target_ch = static_cast<int>((tx->address >> 28) & 0x3);
+            // Extract target channel from address bits [chShift+1:chShift]
+            int target_ch = static_cast<int>((tx->address >> m_chShift) & 0x3);
 
             if (target_ch != out_port)
                 continue;
@@ -80,8 +80,7 @@ void NoCXbar::routeProcess()
             // Match found — route this flit
             m_input[in_port].pop();
 
-            // Strip channel bits from address (clean for DRAMSys)
-            tx->address &= ~(0x3ULL << 28);
+            // Keep channel bits in address — DRAMSys uses them for channel decode
 
             m_output[out_port].push(tx);
             m_routed[out_port]++;
