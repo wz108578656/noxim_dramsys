@@ -44,7 +44,8 @@ public:
 
     DramInterface(sc_core::sc_module_name name,
                   const std::string& configJsonPath,
-                  uint64_t channelSizeBytes = 0x40000000ULL);  // 1GB per channel
+                  uint64_t channelSizeBytes = 0x40000000ULL,
+                  int channelShift = 12);  // DDR4=12, LPDDR4=30
 
     ~DramInterface() override;
 
@@ -78,6 +79,7 @@ private:
     tlm_utils::simple_target_socket_optional<DramInterface, 32> m_upstream[NUM_CHANNELS];
 
     uint64_t m_channelSizeBytes = 0;
+    int m_channelShift = 12;      // bit pos for channel in DRAMSys address
 };
 
 // ============================================================================

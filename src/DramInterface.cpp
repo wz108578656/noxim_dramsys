@@ -22,11 +22,13 @@ using namespace DramIf;
 
 DramInterface::DramInterface(sc_core::sc_module_name name,
                                const std::string& configJsonPath,
-                               uint64_t channelSizeBytes)
+                               uint64_t channelSizeBytes,
+                               int channelShift)
     : sc_module(name)
     , m_dramsys(nullptr)
     , m_configured(false)
     , m_channelSizeBytes(channelSizeBytes)
+    , m_channelShift(channelShift)
 {
     std::cout << "  [DramInterface] Initializing DRAMSys..." << std::endl;
 
@@ -90,14 +92,12 @@ void DramInterface::forwardToDramsys(int channel,
     }
 
     // Apply channel offset for dedicated (no-interleaving) mode.
-    // DRAMSys address mapping: CHANNEL_BIT at bits [12:13], stride = 4KB.
-    // Translate PE-local address to global DRAM address:
-    //   channel 0: addr (bits 12-13 = 00)
-    //   channel 1: addr | 0x1000
-    //   channel 2: addr | 0x2000
-    //   channel 3: addr | 0x3000
+    // Translate PE-local address to global DRAM address using configurable
+    // channel bit position (DDR4=12, LPDDR4=30).
     uint64_t origAddr = trans.get_address();
-    uint64_t chanAddr = (static_cast<uint64_t>(channel) << 12) | (origAddr & ~0x3000ULL);
+    uint64_t chMask = (0x3ULL << m_channelShift);
+    uint64_t chanAddr = (static_cast<uint64_t>(channel) << m_channelShift)
+                      | (origAddr & ~chMask);
     trans.set_address(chanAddr);
 
     m_dramsys->b_transport(trans, delay);

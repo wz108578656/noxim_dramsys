@@ -45,9 +45,9 @@ struct Args {
     int    nocTx        = 1000;    // transactions per PE
     double nocRate      = 0.0;     // ns between tx (0 = full speed)
     double clockPeriod  = 1.0;     // NoC clock period (ns)
-    double dram_tRC     = 50.0;    // DRAM row cycle time (ns)
     bool   modeA        = false;   // all PEs → single channel
     bool   modeB        = true;    // each PE → dedicated channel (default)
+    bool   lpddr4       = false;   // use LPDDR4 channel bits [31:30]
     int    maxCycles    = 100000;
 };
 
@@ -60,19 +60,21 @@ static Args parseArgs(int argc, char** argv)
         else if (arg == "--noc-tx" && i + 1 < argc) args.nocTx = atoi(argv[++i]);
         else if (arg == "--noc-rate" && i + 1 < argc) args.nocRate = atof(argv[++i]);
         else if (arg == "--noc-clock" && i + 1 < argc) args.clockPeriod = atof(argv[++i]);
-        else if (arg == "--dram-trc" && i + 1 < argc) args.dram_tRC = atof(argv[++i]);
         else if (arg == "--noc-mode-a") args.modeA = true;
         else if (arg == "--noc-mode-b") args.modeB = true;
+        else if (arg == "--lpddr4") args.lpddr4 = true;
         else if (arg == "--max-cycles" && i + 1 < argc) args.maxCycles = atoi(argv[++i]);
         else if (arg == "-h" || arg == "--help") {
             cout << "Usage: " << argv[0] << " --dram-config <json> --noc-mode [opts]\n"
                  << "  --noc-tx <N>       Transactions per PE (default 1000)\n"
                  << "  --noc-rate <ns>    Injection interval in ns (0=max)\n"
                  << "  --noc-clock <ns>   NoC clock period (default 1.0ns)\n"
-                 << "  --dram-trc <ns>    DRAM tRC latency (default 50ns)\n"
                  << "  --noc-mode-a       All PEs → single channel (1× BW)\n"
                  << "  --noc-mode-b       Each PE → own channel (4× BW, default)\n"
+                 << "  --lpddr4           Use LPDDR4 channel bits [31:30] (default DDR4 [13:12])\n"
                  << "  --max-cycles <N>   Max simulation cycles (default 100000)\n"
+                 << "\n  DRAM timing: AT protocol via DRAMSys internal scheduler\n"
+                 << "  (tRCD, tCL, tRP, bank conflicts modeled by DRAMSys)\n"
                  << endl;
             exit(0);
         }
@@ -96,11 +98,15 @@ int sc_main(int argc, char** argv)
     cout << "  NoC + DRAMSys Co-Simulation" << endl;
     cout << "  Mode: " << (args.modeA ? "A (all→1ch, 1×BW)" : "B (per-ch, 4×BW)") << endl;
     cout << "  Transactions/PE: " << args.nocTx << endl;
-    cout << "  Clock: " << args.clockPeriod << "ns, tRC: " << args.dram_tRC << "ns" << endl;
+    cout << "  Clock: " << args.clockPeriod << "ns" << endl;
+
+    int chShift = args.lpddr4 ? 30 : 12;
+    cout << "  DRAM: AT protocol, " << (args.lpddr4 ? "LPDDR4" : "DDR4")
+         << " (CH bits at [" << chShift + 1 << ":" << chShift << "])" << endl;
     cout << "================================================\n" << endl;
 
     // ---- DRAMSys ----
-    DramIf::DramInterface dramIf("DramInterface", args.dramConfig, 0);
+    DramIf::DramInterface dramIf("DramInterface", args.dramConfig, 0, chShift);
     if (!dramIf.isConfigured()) {
         cerr << "ERROR: DramInterface init failed" << endl;
         return 1;
@@ -119,7 +125,7 @@ int sc_main(int argc, char** argv)
     for (int ch = 0; ch < 4; ++ch) {
         auto dc = make_unique<DramChannel>(
             sc_module_name(("DramCh" + to_string(ch)).c_str()),
-            ch, &xbar, args.dram_tRC);
+            ch, &xbar);
         dc->bindToDram(dramIf.getUpstreamSocket(ch));
         dramCh.push_back(move(dc));
     }
@@ -206,14 +212,11 @@ int sc_main(int argc, char** argv)
     }
 
     double totalBW = (sim_time_ns > 0) ? (totalBytes / sim_time_ns) : 0.0;
-    double idealBW = (args.modeA ? 1.0 : 4.0) * (64.0 / args.dram_tRC);  // theoretical max (64B per tRC)
 
     cout << "  ----------------------------------------" << endl;
     cout << "  Total:      " << totalBytes << " bytes, "
          << fixed << setprecision(2) << totalBW << " GB/s" << endl;
-    cout << "  Theoretical: " << fixed << setprecision(2) << idealBW << " GB/s"
-         << " (" << (idealBW > 0 ? totalBW / idealBW * 100 : 0)
-         << "% efficiency)" << endl;
+    cout << "  (Timing: DRAMSys AT protocol — tRCD/tCL/tRP/bank conflicts)" << endl;
     cout << "========================================================\n" << endl;
 
     sc_stop();
