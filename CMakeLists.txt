@@ -120,6 +120,7 @@ file(GLOB NOXIM_DRAMSYS_SRCS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/NoC2DramBridge.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/NoximPE.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/MemTrafficGen.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/PE4DRAM.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/sc_main.cpp"
 )
 
@@ -128,6 +129,7 @@ add_executable(noxim_dramsys ${NOXIM_DRAMSYS_SRCS})
 target_include_directories(noxim_dramsys PRIVATE
     ${NOXIM_SRC}
     ${NOXIM_ROOT}
+    SYSTEM ${CMAKE_CURRENT_SOURCE_DIR}/SYSTEM   # SC 3.0.2 tlm_utils (override DRAMSys _deps version)
     ${DRAMSYS_INCLUDE}
     ${DRAMSYS_EXTRA_INC}
     ${DRAMSYS_UTILS_INC}

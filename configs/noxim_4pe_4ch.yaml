@@ -1,0 +1,65 @@
+# 4 PE x 4 Channel Configuration (no interleaving)
+# Each PE owns a dedicated DRAM channel
+# PE0 → Channel0, PE1 → Channel1, PE2 → Channel2, PE3 → Channel3
+
+# NOC & WIRED CONFIGURATION
+mesh_dim_x: 4
+mesh_dim_y: 1
+buffer_depth: 8
+flit_size: 32
+dyad_threshold: 0.5
+r2h_link_length: 2.0
+r2r_link_length: 1.0
+n_virtual_channels: 1
+
+# Routing algorithms: XY for mesh
+routing_algorithm: XY
+routing_table_filename: ""
+
+# Selection Strategies: RANDOM
+selection_strategy: RANDOM
+
+# WINOC CONFIGURATION (wireless off)
+use_winoc: false
+use_wirxsleep: false
+
+# SIMULATION PARAMETERS
+clock_period_ps: 1000
+reset_time: 1000
+simulation_time: 100000
+stats_warm_up_time: 10000
+detailed: false
+max_volume_to_be_drained: 0
+show_buffer_stats: false
+
+# Verbosity
+verbose_mode: VERBOSE_OFF
+log_level: INFO
+log_file: ""
+log_to_stderr: true
+log_components: []
+
+stats_format: text
+stats_file: ""
+
+trace_mode: false
+trace_filename: ""
+trace_scope: basic
+
+# TRAFFIC GENERATION
+min_packet_size: 8
+max_packet_size: 8
+packet_injection_rate: 0.02
+probability_of_retransmission: 0.0
+
+# Traffic distribution: each PE generates local traffic
+traffic_distribution: TRAFFIC_RANDOM
+traffic_table_filename: ""
+traffic_hardcoded_filename: ""
+
+# RadioChannels (required but unused since use_winoc=false)
+RadioChannels:
+    defaults:
+        data_rate: 16
+        ber: [0, 0]
+        mac_policy: [TOKEN_PACKET]

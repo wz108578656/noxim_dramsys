@@ -1,0 +1,54 @@
+{
+    "memspec": {
+        "memarchitecturespec": {
+            "burstLength": 8,
+            "dataRate": 2,
+            "nbrOfBankGroups": 4,
+            "nbrOfBanks": 8,
+            "nbrOfColumns": 512,
+            "nbrOfRanks": 1,
+            "nbrOfRows": 4096,
+            "width": 64,
+            "nbrOfDevices": 1,
+            "nbrOfChannels": 6,
+            "RefMode": 1,
+            "maxBurstLength": 8
+        },
+        "memoryId": "Custom_DDR4_6CH",
+        "memoryType": "DDR4",
+        "memtimingspec": {
+            "AL": 0,
+            "CCD": 4,
+            "CL": 16,
+            "CWL": 12,
+            "TRCD": 16,
+            "TRP": 16,
+            "TRAS": 36,
+            "RC": 52,
+            "RFC": 350,
+            "REFI": 6240,
+            "RRD": 4,
+            "RTP": 8,
+            "WR": 16,
+            "WTR": 8,
+            "XP": 8,
+            "XSDLL": 512,
+            "FAW": 16,
+            "tCK": 781.25e-12
+        },
+        "mempowerspec": {
+            "vdd": 1.2,
+            "idd0": 56.25e-3,
+            "idd2n": 33.75e-3,
+            "idd3n": 39.5e-3,
+            "idd4r": 157.5e-3,
+            "idd4w": 135.0e-3,
+            "idd6n": 20.25e-3,
+            "idd2p": 17.0e-3,
+            "idd3p": 22.5e-3
+        },
+        "bankwisespec": {
+            "factRho": 1.0
+        }
+    }
+}
