@@ -111,16 +111,14 @@ set(DRAMSYS_RESOURCE_DIR "${DRAMSYS_ROOT}/configs")
 set(DRAMSYS_UTILS_INC "${DRAMSYS_ROOT}/build/_deps/dramutils-src/include")
 
 # ============================================================================
-# Application (DramInterface + NoCInterface + sc_main)
+# Application (NoC Crossbar + DRAMSys co-simulation)
 # ============================================================================
 file(GLOB NOXIM_DRAMSYS_SRCS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/NoximGlobals.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/DramInterface.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/NoCInterface.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/NoC2DramBridge.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/NoximPE.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/MemTrafficGen.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/PE4DRAM.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/pe.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/noc_xbar.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/dram_channel.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/sc_main.cpp"
 )
 
