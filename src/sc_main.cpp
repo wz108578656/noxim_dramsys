@@ -52,8 +52,8 @@ struct Args {
     double nocRate      = 0.0;     // ns between tx (0 = full speed)
     double clockPeriod  = 1.0;     // NoC clock period (ns)
     bool   modeA        = false;   // all PEs → single channel
-    bool   modeB        = true;    // each PE → dedicated channel (default)
-    bool   interleave   = false;   // round-robin tx across 4 channels
+    bool   modeB        = false;   // each PE → dedicated channel
+    bool   interleave   = true;    // address-interleave (default)
     bool   lpddr4       = false;   // use LPDDR4 channel bits [31:30]
     bool   is_read      = false;   // READ instead of WRITE
     int    maxCycles    = 100000;
@@ -69,8 +69,8 @@ static Args parseArgs(int argc, char** argv)
         else if (arg == "--noc-pe" && i + 1 < argc) args.numPEs = atoi(argv[++i]);
         else if (arg == "--noc-rate" && i + 1 < argc) args.nocRate = atof(argv[++i]);
         else if (arg == "--noc-clock" && i + 1 < argc) args.clockPeriod = atof(argv[++i]);
-        else if (arg == "--noc-mode-a") args.modeA = true;
-        else if (arg == "--noc-mode-b") args.modeB = true;
+        else if (arg == "--noc-mode-a") { args.modeA = true; args.interleave = false; }
+        else if (arg == "--noc-mode-b") { args.modeB = true; args.interleave = false; }
         else if (arg == "--noc-interleave") args.interleave = true;
         else if (arg == "--lpddr4") args.lpddr4 = true;
         else if (arg == "--noc-read") args.is_read = true;
@@ -142,6 +142,7 @@ int sc_main(int argc, char** argv)
     xbar.reset(noc_rst);
     xbar.setChannelShift(chShift);
     if (args.modeA) xbar.setForceOutput(0);
+    if (args.interleave) xbar.setInterleaveShift(8);  // 256B granularity
 
     // ---- DRAM Channels (bind directly to DRAMSys::tSocket — AT protocol) ----
     vector<unique_ptr<DramChannel>> dramCh;

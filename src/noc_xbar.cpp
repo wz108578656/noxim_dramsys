@@ -71,9 +71,18 @@ void NoCXbar::routeProcess()
 
             MemTransaction* tx = m_input[in_port].front();
 
-            // Extract target channel from address bits [chShift+1:chShift]
-            int target_ch = m_forceEnable ? m_forceOutput :
-                            static_cast<int>((tx->address >> m_chShift) & 0x3);
+            // Determine target channel
+            int target_ch;
+            if (m_forceEnable) {
+                target_ch = m_forceOutput;
+            } else if (m_interleave) {
+                // Address interleave: channel = (addr >> ilShift) & 0x3.
+                // Uses low address bits (e.g., COL bits) instead of
+                // the original CHANNEL_BIT position.
+                target_ch = static_cast<int>((tx->address >> m_ilShift) & 0x3);
+            } else {
+                target_ch = static_cast<int>((tx->address >> m_chShift) & 0x3);
+            }
 
             if (target_ch != out_port)
                 continue;
@@ -81,10 +90,10 @@ void NoCXbar::routeProcess()
             // Match found — route this flit
             m_input[in_port].pop();
 
-            // In force mode, set channel bits to the forced output for DRAMSys decode
-            if (m_forceEnable) {
+            // Rewrite channel bits for DRAMSys decode
+            if (m_forceEnable || m_interleave) {
                 tx->address &= ~(0x3ULL << m_chShift);
-                tx->address |= (static_cast<uint64_t>(m_forceOutput) << m_chShift);
+                tx->address |= (static_cast<uint64_t>(target_ch) << m_chShift);
             }
 
             // Keep channel bits in address — DRAMSys uses them for channel decode

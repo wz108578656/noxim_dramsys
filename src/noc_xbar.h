@@ -60,6 +60,11 @@ public:
     void setForceOutput(int port) { m_forceOutput = port; m_forceEnable = true; }
     void clearForceOutput()      { m_forceEnable = false; }
 
+    // Interleave: address-based channel selection using low address bits.
+    // setInterleaveShift(N): channel = (addr >> N) & 0x3.
+    // DDR4 example: N=8 → 256B interleave granularity (COL bits [9:8]).
+    void setInterleaveShift(int shift) { m_ilShift = shift; m_interleave = (shift >= 0); }
+
     // Statistics
     uint64_t routedCount(int channel) const { return m_routed[channel]; }
 
@@ -81,6 +86,10 @@ private:
     // Force-output mode (Mode A: all traffic to one channel)
     int  m_forceOutput = 0;
     bool m_forceEnable = false;
+
+    // Interleave mode: address-based channel selection
+    bool m_interleave = false;
+    int  m_ilShift = 8;  // default: 256B granularity
 
     // Per-output routed counter
     uint64_t m_routed[XBAR_PORTS];
