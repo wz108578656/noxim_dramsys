@@ -53,6 +53,7 @@ struct Args {
     double clockPeriod  = 1.0;     // NoC clock period (ns)
     bool   modeA        = false;   // all PEs → single channel
     bool   modeB        = true;    // each PE → dedicated channel (default)
+    bool   interleave   = false;   // round-robin tx across 4 channels
     bool   lpddr4       = false;   // use LPDDR4 channel bits [31:30]
     bool   is_read      = false;   // READ instead of WRITE
     int    maxCycles    = 100000;
@@ -70,6 +71,7 @@ static Args parseArgs(int argc, char** argv)
         else if (arg == "--noc-clock" && i + 1 < argc) args.clockPeriod = atof(argv[++i]);
         else if (arg == "--noc-mode-a") args.modeA = true;
         else if (arg == "--noc-mode-b") args.modeB = true;
+        else if (arg == "--noc-interleave") args.interleave = true;
         else if (arg == "--lpddr4") args.lpddr4 = true;
         else if (arg == "--noc-read") args.is_read = true;
         else if (arg == "--max-cycles" && i + 1 < argc) args.maxCycles = atoi(argv[++i]);
@@ -160,6 +162,9 @@ int sc_main(int argc, char** argv)
 
         if (args.modeA) {
             base_addr = static_cast<uint32_t>(pe) * 0x10000;
+        } else if (args.interleave) {
+            // Interleave: PE handles channel encoding, base_addr is ch-agnostic
+            base_addr = static_cast<uint32_t>(pe) * 0x10000;
         } else {
             int subIdx = pe / 4;
             base_addr = (static_cast<uint32_t>(ch) << chShift)
@@ -169,7 +174,7 @@ int sc_main(int argc, char** argv)
         auto p = make_unique<PE>(
             sc_module_name(("PE" + to_string(pe)).c_str()),
             pe, pe % 4, &xbar, args.nocTx, base_addr, args.nocRate,
-            args.is_read, args.lpddr4 ? 32 : 64);
+            args.is_read, args.lpddr4 ? 32 : 64, args.interleave, chShift);
         pes.push_back(move(p));
     }
 
@@ -189,12 +194,20 @@ int sc_main(int argc, char** argv)
         sc_start(poll_interval);
 
         bool allDone = true;
-        for (int ch = 0; ch < 4; ++ch) {
-            // Mode A: only channel 0 receives traffic; others stay at 0
-            int expectedTx = args.modeA ? (ch == 0 ? args.nocTx * args.numPEs : 0)
-                                        : args.nocTx * pesPerChannel;
-            if (dramCh[ch]->completed() < static_cast<uint64_t>(expectedTx))
+        if (args.interleave) {
+            // Check total across all channels
+            uint64_t totalCompleted = 0;
+            for (int ch = 0; ch < 4; ++ch)
+                totalCompleted += dramCh[ch]->completed();
+            if (totalCompleted < static_cast<uint64_t>(args.nocTx) * args.numPEs)
                 allDone = false;
+        } else {
+            for (int ch = 0; ch < 4; ++ch) {
+                int expectedTx = args.modeA ? (ch == 0 ? args.nocTx * args.numPEs : 0)
+                              : args.nocTx * pesPerChannel;
+                if (dramCh[ch]->completed() < static_cast<uint64_t>(expectedTx))
+                    allDone = false;
+            }
         }
         if (allDone) break;
         if ((sc_time_stamp() - t0) > timeout) {

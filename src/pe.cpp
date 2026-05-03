@@ -9,13 +9,16 @@ using namespace std;
 
 PE::PE(sc_module_name name, int pe_id, int noc_port,
        NoCXbar* xbar, int num_tx, uint32_t base_addr,
-       double inj_rate_ns, bool is_read, int data_len)
+       double inj_rate_ns, bool is_read, int data_len,
+       bool interleave, int chShift)
     : sc_module(name)
     , m_pe_id(pe_id)
     , m_noc_port(noc_port)
     , m_xbar(xbar)
     , m_num_tx(num_tx)
     , m_data_len(data_len)
+    , m_interleave(interleave)
+    , m_chShift(chShift)
     , m_base_addr(base_addr)
     , m_inj_interval(inj_rate_ns, SC_NS)
     , m_tx_sent(0)
@@ -39,7 +42,17 @@ void PE::run()
 
         // Allocate transaction on heap (DramChannel deletes after processing)
         MemTransaction* tx = new MemTransaction();
-        tx->address  = m_base_addr + static_cast<uint32_t>(i) * m_data_len;
+
+        if (m_interleave) {
+            // Round-robin across 4 channels: stagger start by PE id to
+            // avoid head-of-line blocking at the NoC crossbar.
+            int ch = (i + m_pe_id) % 4;
+            int chOff = (i / 4) * m_data_len;
+            tx->address = (static_cast<uint64_t>(ch) << m_chShift)
+                        | (static_cast<uint64_t>(m_base_addr) + chOff);
+        } else {
+            tx->address = m_base_addr + static_cast<uint32_t>(i) * m_data_len;
+        }
         tx->is_write = !m_is_read;
         tx->data_len = m_data_len;
         tx->pe_id    = m_pe_id;
