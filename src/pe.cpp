@@ -7,11 +7,12 @@
 
 using namespace std;
 
-PE::PE(sc_module_name name, int pe_id, NoCXbar* xbar,
-       int num_tx, uint32_t base_addr, double inj_rate_ns,
-       bool is_read, int data_len)
+PE::PE(sc_module_name name, int pe_id, int noc_port,
+       NoCXbar* xbar, int num_tx, uint32_t base_addr,
+       double inj_rate_ns, bool is_read, int data_len)
     : sc_module(name)
     , m_pe_id(pe_id)
+    , m_noc_port(noc_port)
     , m_xbar(xbar)
     , m_num_tx(num_tx)
     , m_data_len(data_len)
@@ -32,7 +33,7 @@ void PE::run()
 
     for (int i = 0; i < m_num_tx; ++i) {
         // Backpressure: wait if input FIFO full
-        while (m_xbar->inputFull(m_pe_id)) {
+        while (m_xbar->inputFull(m_noc_port)) {
             wait(sc_time(1, SC_NS));
         }
 
@@ -49,7 +50,7 @@ void PE::run()
         for (int w = 0; w < 16; ++w)
             tx->data[w] = pattern + w;
 
-        m_xbar->pushInput(m_pe_id, tx);
+        m_xbar->pushInput(m_noc_port, tx);
         m_tx_sent++;
 
         if (m_inj_interval != SC_ZERO_TIME)

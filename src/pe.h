@@ -21,9 +21,9 @@ SC_MODULE(PE)
 public:
     SC_HAS_PROCESS(PE);
 
-    PE(sc_module_name name, int pe_id, NoCXbar* xbar,
-       int num_tx, uint32_t base_addr, double inj_rate_ns,
-       bool is_read, int data_len = 64);
+    PE(sc_module_name name, int pe_id, int noc_port,
+       NoCXbar* xbar, int num_tx, uint32_t base_addr,
+       double inj_rate_ns, bool is_read, int data_len = 64);
 
     // Statistics
     uint64_t tx_sent() const { return m_tx_sent; }
@@ -33,6 +33,7 @@ private:
     void run();
 
     int m_pe_id;
+    int m_noc_port;     // NoC crossbar input port (0..3)
     NoCXbar* m_xbar;
     int m_num_tx;
     int m_data_len;

@@ -48,6 +48,7 @@ using namespace sc_core;
 struct Args {
     string dramConfig;
     int    nocTx        = 1000;    // transactions per PE
+    int    numPEs       = 4;       // number of PEs
     double nocRate      = 0.0;     // ns between tx (0 = full speed)
     double clockPeriod  = 1.0;     // NoC clock period (ns)
     bool   modeA        = false;   // all PEs → single channel
@@ -64,6 +65,7 @@ static Args parseArgs(int argc, char** argv)
         string arg = argv[i];
         if (arg == "--dram-config" && i + 1 < argc) args.dramConfig = argv[++i];
         else if (arg == "--noc-tx" && i + 1 < argc) args.nocTx = atoi(argv[++i]);
+        else if (arg == "--noc-pe" && i + 1 < argc) args.numPEs = atoi(argv[++i]);
         else if (arg == "--noc-rate" && i + 1 < argc) args.nocRate = atof(argv[++i]);
         else if (arg == "--noc-clock" && i + 1 < argc) args.clockPeriod = atof(argv[++i]);
         else if (arg == "--noc-mode-a") args.modeA = true;
@@ -74,6 +76,7 @@ static Args parseArgs(int argc, char** argv)
         else if (arg == "-h" || arg == "--help") {
             cout << "Usage: " << argv[0] << " --dram-config <json> --noc-mode [opts]\n"
                  << "  --noc-tx <N>       Transactions per PE (default 1000)\n"
+                 << "  --noc-pe <N>       Number of PEs (default 4, max 32)\n"
                  << "  --noc-rate <ns>    Injection interval in ns (0=max)\n"
                  << "  --noc-clock <ns>   NoC clock period (default 1.0ns)\n"
                  << "  --noc-mode-a       All PEs → single channel (1× BW)\n"
@@ -105,6 +108,7 @@ int sc_main(int argc, char** argv)
     cout << "\n================================================" << endl;
     cout << "  NoC + DRAMSys Co-Simulation" << endl;
     cout << "  Mode: " << (args.modeA ? "A (all→1ch, 1×BW)" : "B (per-ch, 4×BW)") << endl;
+    cout << "  PEs: " << args.numPEs << endl;
     cout << "  Transactions/PE: " << args.nocTx << endl;
     cout << "  Clock: " << args.clockPeriod << "ns" << endl;
 
@@ -147,25 +151,24 @@ int sc_main(int argc, char** argv)
         dramCh.push_back(move(dc));
     }
 
-    // ---- PEs ----
+     // ---- PEs ---- (N PEs, distributed across 4 channels)
+    int pesPerChannel = args.modeA ? args.numPEs : max(1, args.numPEs / 4);
     vector<unique_ptr<PE>> pes;
-    for (int pe = 0; pe < 4; ++pe) {
+    for (int pe = 0; pe < args.numPEs; ++pe) {
         uint32_t base_addr;
+        int ch = pe % 4;
 
         if (args.modeA) {
-            // Mode A: all PEs target CH0 (crossbar forces output 0).
-            // Use large stride to avoid sequential address collision within CH0.
             base_addr = static_cast<uint32_t>(pe) * 0x10000;
         } else {
-            // Mode B: each PE targets its own channel at bits [chShift+1:chShift]
-            // DDR4: pe<<12 → CH0=0x0000, CH1=0x1000, CH2=0x2000, CH3=0x3000
-            // LPDDR4: pe<<30 → CH0=0x00000000, CH1=0x40000000, CH2=0x80000000, CH3=0xC0000000
-            base_addr = static_cast<uint32_t>(pe) << chShift;
+            int subIdx = pe / 4;
+            base_addr = (static_cast<uint32_t>(ch) << chShift)
+                      | (static_cast<uint32_t>(subIdx) * 0x10000);
         }
 
         auto p = make_unique<PE>(
             sc_module_name(("PE" + to_string(pe)).c_str()),
-            pe, &xbar, args.nocTx, base_addr, args.nocRate,
+            pe, pe % 4, &xbar, args.nocTx, base_addr, args.nocRate,
             args.is_read, args.lpddr4 ? 32 : 64);
         pes.push_back(move(p));
     }
@@ -178,7 +181,7 @@ int sc_main(int argc, char** argv)
     noc_rst.write(0);
 
     // Run until all DramChannels complete their transactions
-    sc_time poll_interval(10, SC_US);
+    sc_time poll_interval(1, SC_US);  // poll every 1 μs for high-throughput
     sc_time timeout(args.maxCycles * args.clockPeriod, SC_NS);
     sc_time t0 = sc_time_stamp();
 
@@ -188,7 +191,8 @@ int sc_main(int argc, char** argv)
         bool allDone = true;
         for (int ch = 0; ch < 4; ++ch) {
             // Mode A: only channel 0 receives traffic; others stay at 0
-            int expectedTx = args.modeA ? (ch == 0 ? args.nocTx * 4 : 0) : args.nocTx;
+            int expectedTx = args.modeA ? (ch == 0 ? args.nocTx * args.numPEs : 0)
+                                        : args.nocTx * pesPerChannel;
             if (dramCh[ch]->completed() < static_cast<uint64_t>(expectedTx))
                 allDone = false;
         }
