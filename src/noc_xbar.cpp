@@ -13,6 +13,7 @@ NoCXbar::NoCXbar(sc_module_name name)
     for (int i = 0; i < XBAR_PORTS; ++i) {
         m_rr[i]     = XBAR_PORTS - 1;  // start from 0 after first wrap
         m_routed[i] = 0;
+        m_input_pops[i] = 0;
     }
 
     SC_METHOD(routeProcess);
@@ -58,52 +59,43 @@ void NoCXbar::routeProcess()
     if (reset.read())
         return;
 
-    // Each output port has independent round-robin arbitration.
-    // Different outputs can accept flits in the same cycle (non-blocking).
-    for (int out_port = 0; out_port < XBAR_PORTS; ++out_port) {
+    // Per-input serving: each input port pops one transaction per cycle
+    // and routes to its target output channel.
+    // This is strictly fair: every input gets exactly one service per cycle.
+    // No output priority bias (unlike output-scan which favors lower outputs).
+    static int in_start = 0;
+    for (int s = 0; s < XBAR_PORTS; ++s) {
+        int in_port = (in_start + s) % XBAR_PORTS;
 
-        // Round-robin: start search from last winner + 1
-        for (int attempt = 0; attempt < XBAR_PORTS; ++attempt) {
-            int in_port = (m_rr[out_port] + 1 + attempt) % XBAR_PORTS;
+        if (m_input[in_port].empty())
+            continue;
 
-            if (m_input[in_port].empty())
-                continue;
+        MemTransaction* tx = m_input[in_port].front();
 
-            MemTransaction* tx = m_input[in_port].front();
-
-            // Determine target channel
-            int target_ch;
-            if (m_forceEnable) {
-                target_ch = m_forceOutput;
-            } else if (m_interleave) {
-                // Address interleave: channel = (addr >> ilShift) & 0x3.
-                // Uses low address bits (e.g., COL bits) instead of
-                // the original CHANNEL_BIT position.
-                target_ch = static_cast<int>((tx->address >> m_ilShift) & 0x3);
-            } else {
-                target_ch = static_cast<int>((tx->address >> m_chShift) & 0x3);
-            }
-
-            if (target_ch != out_port)
-                continue;
-
-            // Match found — route this flit
-            m_input[in_port].pop();
-
-            // Rewrite channel bits for DRAMSys decode
-            if (m_forceEnable || m_interleave) {
-                tx->address &= ~(0x3ULL << m_chShift);
-                tx->address |= (static_cast<uint64_t>(target_ch) << m_chShift);
-            }
-
-            // Keep channel bits in address — DRAMSys uses them for channel decode
-
-            m_output[out_port].push(tx);
-            m_routed[out_port]++;
-            m_rr[out_port] = in_port;  // remember winner for next cycle
-
-            // Only 1 flit per input per cycle, so stop searching this output
-            break;
+        // Determine target channel
+        int target_ch;
+        if (m_forceEnable) {
+            target_ch = m_forceOutput;
+        } else if (m_interleave) {
+            target_ch = static_cast<int>((tx->address >> m_ilShift) & 0x3);
+        } else {
+            target_ch = static_cast<int>((tx->address >> m_chShift) & 0x3);
         }
+
+        // Route this transaction
+        m_input[in_port].pop();
+
+        // Rewrite channel bits for DRAMSys decode
+        if (m_forceEnable || m_interleave) {
+            tx->address &= ~(0x3ULL << m_chShift);
+            tx->address |= (static_cast<uint64_t>(target_ch) << m_chShift);
+        }
+
+        m_output[target_ch].push(tx);
+        m_routed[target_ch]++;
+        m_input_pops[in_port]++;  // debug
     }
+
+    // Rotate input start for next cycle
+    in_start = (in_start + 1) % XBAR_PORTS;
 }

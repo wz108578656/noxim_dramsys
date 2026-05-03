@@ -57,6 +57,8 @@ struct Args {
     bool   lpddr4       = false;   // use LPDDR4 channel bits [31:30]
     bool   is_read      = false;   // READ instead of WRITE
     int    maxCycles    = 100000;
+    bool   experimentCompete  = false;
+    bool   experimentOpposite = false;
 };
 
 static Args parseArgs(int argc, char** argv)
@@ -72,6 +74,22 @@ static Args parseArgs(int argc, char** argv)
         else if (arg == "--noc-mode-a") { args.modeA = true; args.interleave = false; }
         else if (arg == "--noc-mode-b") { args.modeB = true; args.interleave = false; }
         else if (arg == "--noc-interleave") args.interleave = true;
+        else if (arg == "--experiment-compete") {
+            args.experimentCompete = true;
+            args.interleave = false;
+            args.numPEs = 16;
+            args.nocTx = 2000;
+            args.clockPeriod = 0.2;
+            args.maxCycles = 500000;
+        }
+        else if (arg == "--experiment-opposite") {
+            args.experimentOpposite = true;
+            args.interleave = false;
+            args.numPEs = 16;
+            args.nocTx = 2000;
+            args.clockPeriod = 0.2;
+            args.maxCycles = 500000;
+        }
         else if (arg == "--lpddr4") args.lpddr4 = true;
         else if (arg == "--noc-read") args.is_read = true;
         else if (arg == "--max-cycles" && i + 1 < argc) args.maxCycles = atoi(argv[++i]);
@@ -86,6 +104,9 @@ static Args parseArgs(int argc, char** argv)
                  << "  --lpddr4           Use LPDDR4 channel bits [31:30] (default DDR4 [13:12])\n"
                  << "  --noc-read         Use READ commands (default WRITE)\n"
                  << "  --max-cycles <N>   Max simulation cycles (default 100000)\n"
+                 << "\n  Experiment modes (8 PE, 4000 tx/PE, fixed-channel, crossbar):\n"
+                 << "  --experiment-compete   Both groups target same channels (contention)\n"
+                 << "  --experiment-opposite  Groups target reversed channels (staggered)\n"
                  << "\n  DRAM timing: AT protocol via DRAMSys internal scheduler\n"
                  << "  (tRCD, tCL, tRP, bank conflicts modeled by DRAMSys)\n"
                  << endl;
@@ -107,9 +128,16 @@ int sc_main(int argc, char** argv)
         return 1;
     }
 
+    // ---- Header banner ----
+    string modeStr;
+    if (args.experimentCompete) modeStr = "Experiment: Interleave (16 PE, 4 ports)";
+    else if (args.experimentOpposite) modeStr = "Experiment: Channel-aware (16 PE, 4 ports)";
+    else if (args.modeA) modeStr = "A (all->1ch, 1xBW)";
+    else modeStr = "B (per-ch, 4xBW)";
+
     cout << "\n================================================" << endl;
     cout << "  NoC + DRAMSys Co-Simulation" << endl;
-    cout << "  Mode: " << (args.modeA ? "A (all→1ch, 1×BW)" : "B (per-ch, 4×BW)") << endl;
+    cout << "  Mode: " << modeStr << endl;
     cout << "  PEs: " << args.numPEs << endl;
     cout << "  Transactions/PE: " << args.nocTx << endl;
     cout << "  Clock: " << args.clockPeriod << "ns" << endl;
@@ -143,6 +171,8 @@ int sc_main(int argc, char** argv)
     xbar.setChannelShift(chShift);
     if (args.modeA) xbar.setForceOutput(0);
     if (args.interleave) xbar.setInterleaveShift(8);  // 256B granularity
+    // Experiment modes: Scenario 1 (compete) enables crossbar interleave
+    if (args.experimentCompete) xbar.setInterleaveShift(8);
 
     // ---- DRAM Channels (bind directly to DRAMSys::tSocket — AT protocol) ----
     vector<unique_ptr<DramChannel>> dramCh;
@@ -157,7 +187,40 @@ int sc_main(int argc, char** argv)
      // ---- PEs ---- (N PEs, distributed across 4 channels)
     int pesPerChannel = args.modeA ? args.numPEs : max(1, args.numPEs / 4);
     vector<unique_ptr<PE>> pes;
-    for (int pe = 0; pe < args.numPEs; ++pe) {
+
+    if (args.experimentCompete || args.experimentOpposite) {
+        // Pre-computed, one-shot PEs: 1 per port (not 4), each with num_copies=4
+        // to replicate 4 logical PEs per port. Eliminates SC_THREAD timing artifacts.
+        int port_seq[4][4] = {
+            {0, 1, 2, 3},
+            {1, 2, 3, 0},
+            {2, 3, 0, 1},
+            {3, 0, 1, 2}
+        };
+        for (int port = 0; port < 4; ++port) {
+            uint32_t base_addr = static_cast<uint32_t>(port) * 0x10000;
+            if (args.experimentCompete) {
+                // Scenario 1: interleaving — no chan_seq, raw sequential
+                auto p = make_unique<PE>(
+                    sc_module_name(("PE_port" + to_string(port)).c_str()),
+                    port, port, &xbar, args.nocTx, base_addr, args.nocRate,
+                    args.is_read, 64, false, chShift);
+                // Pre-compute 4 copies of sequential addresses
+                p->enableOneShot(chShift, 64, 4);
+                pes.push_back(move(p));
+            } else {
+                // Scenario 2: channel-aware rotated stagger
+                auto p = make_unique<PE>(
+                    sc_module_name(("PE_port" + to_string(port)).c_str()),
+                    port, port, &xbar, args.nocTx, base_addr, args.nocRate,
+                    args.is_read, 64, false, chShift, port_seq[port]);
+                // Pre-compute 4 copies (4 logical PEs per port)
+                p->enableOneShot(chShift, 64, 4);
+                pes.push_back(move(p));
+            }
+        }
+    } else {
+        for (int pe = 0; pe < args.numPEs; ++pe) {
         uint32_t base_addr;
         int ch = pe % 4;
 
@@ -178,6 +241,7 @@ int sc_main(int argc, char** argv)
             args.is_read, args.lpddr4 ? 32 : 64, args.interleave, chShift);
         pes.push_back(move(p));
     }
+    }  // end else (non-experiment PEs)
 
     // ---- Run simulation ----
     cout << "\n--- Starting simulation ---" << endl;
@@ -187,7 +251,7 @@ int sc_main(int argc, char** argv)
     noc_rst.write(0);
 
     // Run until all DramChannels complete their transactions
-    sc_time poll_interval(1, SC_US);  // poll every 1 μs for high-throughput
+    sc_time poll_interval(100, SC_NS);   // poll every 100 ns for precise timing
     sc_time timeout(args.maxCycles * args.clockPeriod, SC_NS);
     sc_time t0 = sc_time_stamp();
 
@@ -195,7 +259,15 @@ int sc_main(int argc, char** argv)
         sc_start(poll_interval);
 
         bool allDone = true;
-        if (args.interleave) {
+        if (args.experimentCompete || args.experimentOpposite) {
+            // Per-channel check: all 4 channels must reach their target
+            // (16 PE x 2000 tx / 4 channels = 8000 per channel)
+            uint64_t perChTarget = static_cast<uint64_t>(args.nocTx) * args.numPEs / 4;
+            for (int ch = 0; ch < 4; ++ch) {
+                if (dramCh[ch]->completed() < perChTarget)
+                    allDone = false;
+            }
+        } else if (args.interleave) {
             // Check total across all channels
             uint64_t totalCompleted = 0;
             for (int ch = 0; ch < 4; ++ch)
@@ -232,9 +304,9 @@ int sc_main(int argc, char** argv)
 
     double sim_time_ns = sc_time_stamp().to_seconds() * 1e9;
 
-    // ---- Report ----
+    // ---- Report ---- (DramChannel-based for all modes)
     cout << "\n============ NoC + DRAMSys Bandwidth Report ============" << endl;
-    cout << "  Mode: " << (args.modeA ? "A (1×BW)" : "B (4×BW)") << endl;
+    cout << "  Mode: " << modeStr << endl;
     cout << "  Simulation time: " << fixed << setprecision(1)
          << sim_time_ns << " ns" << endl;
 
@@ -248,6 +320,15 @@ int sc_main(int argc, char** argv)
              << chBytes << " bytes, "
              << fixed << setprecision(2) << chBW << " GB/s" << endl;
         totalBytes += chBytes;
+    }
+
+    // Show crossbar routing stats for debugging
+    if (args.experimentCompete || args.experimentOpposite) {
+        cout << "  [Xbar routed] ";
+        for (int out = 0; out < 4; ++out) {
+            cout << "out" << out << "=" << xbar.routedCount(out) << " ";
+        }
+        cout << endl;
     }
 
     double totalBW = (sim_time_ns > 0) ? (totalBytes / sim_time_ns) : 0.0;
@@ -311,7 +392,6 @@ int sc_main(int argc, char** argv)
         cout << "   per-channel isolation requires AT cycle-accurate mode)" << endl;
         cout << "================================================\n" << endl;
     }
-
     sc_stop();
     return 0;
 }

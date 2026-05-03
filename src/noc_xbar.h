@@ -67,6 +67,7 @@ public:
 
     // Statistics
     uint64_t routedCount(int channel) const { return m_routed[channel]; }
+    uint64_t inputPopCount(int port) const { return m_input_pops[port]; }
 
 private:
     void routeProcess();   // SC_METHOD: 1 cycle of routing
@@ -93,6 +94,8 @@ private:
 
     // Per-output routed counter
     uint64_t m_routed[XBAR_PORTS];
+    // Per-input pop counter (debug)
+    uint64_t m_input_pops[XBAR_PORTS];
 };
 
 #endif // NOC_XBAR_H
