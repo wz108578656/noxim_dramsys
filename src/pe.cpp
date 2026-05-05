@@ -43,15 +43,16 @@ void PE::enableOneShot(int chShift, int data_len, int num_copies)
 {
     m_pre_addrs.clear();
     if (m_chan_seq[0] >= 0) {
-        // Chan-seq mode: cycle through defined channels
+        // Block-based burst mode
+        int ch_in_burst = m_num_tx / 4;
         for (int copy = 0; copy < num_copies; ++copy) {
             uint32_t copy_base = m_base_addr + static_cast<uint32_t>(copy) * 0x10000;
             for (int i = 0; i < m_num_tx; ++i) {
-                int ch = m_chan_seq[i % 4];
-                int blockIdx = i / 4;
+                int ch_idx = (i * 4) / m_num_tx;
+                int ch = m_chan_seq[ch_idx];
                 uint64_t ch_bits = static_cast<uint64_t>(ch) << chShift;
                 uint64_t low = static_cast<uint64_t>(copy_base)
-                             + static_cast<uint64_t>(blockIdx) * data_len;
+                             + static_cast<uint64_t>(i % ch_in_burst) * data_len;
                 uint64_t ch_mask = (0x3ULL) << chShift;
                 low &= ~ch_mask;
                 m_pre_addrs.push_back(ch_bits | low);
@@ -110,15 +111,15 @@ void PE::run()
         MemTransaction* tx = new MemTransaction();
 
         if (m_chan_seq[0] >= 0) {
-            // Custom channel sequence mode: cycle through 4 channels in the
-            // defined order. Each PE sends to all channels, allowing
-            // contention-aware or contention-avoiding access patterns.
-            int ch = m_chan_seq[i % 4];
-            int blockIdx = i / 4;
+            // Block-based channel sequence: each channel gets N/4 consecutive
+            // transactions as a burst before moving to the next channel.
+            // Port 0: [ch0×500, ch1×500, ch2×500, ch3×500]  (burst per ch)
+            int ch_in_burst = m_num_tx / 4;  // tx per channel in this burst
+            int ch_idx = (i * 4) / m_num_tx;  // which channel block (0..3)
+            int ch = m_chan_seq[ch_idx];
             uint64_t ch_bits = static_cast<uint64_t>(ch) << m_chShift;
             uint64_t low = static_cast<uint64_t>(m_base_addr)
-                         + static_cast<uint64_t>(blockIdx) * m_data_len;
-            // Clear channel bit region in low portion to avoid overlap
+                         + static_cast<uint64_t>(i % ch_in_burst) * m_data_len;
             uint64_t ch_mask = (0x3ULL) << m_chShift;
             low &= ~ch_mask;
             tx->address = ch_bits | low;
