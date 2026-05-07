@@ -39,7 +39,9 @@ void PE::setChanSeq(const int seq[4])
         m_chan_seq[i] = seq[i];
 }
 
-void PE::enableOneShot(int chShift, int data_len, int num_copies)
+const uint64_t BG_BA_MASK = ~(0xFULL << 14); // clear bits [17:14]
+
+void PE::enableOneShot(int chShift, int data_len, int num_copies, bool fix_bg_ba)
 {
     m_pre_addrs.clear();
     if (m_chan_seq[0] >= 0) {
@@ -55,7 +57,9 @@ void PE::enableOneShot(int chShift, int data_len, int num_copies)
                              + static_cast<uint64_t>(i % ch_in_burst) * data_len;
                 uint64_t ch_mask = (0x3ULL) << chShift;
                 low &= ~ch_mask;
-                m_pre_addrs.push_back(ch_bits | low);
+                uint64_t addr = ch_bits | low;
+                if (fix_bg_ba) addr &= BG_BA_MASK;
+                m_pre_addrs.push_back(addr);
             }
         }
     } else {
@@ -65,6 +69,7 @@ void PE::enableOneShot(int chShift, int data_len, int num_copies)
             for (int i = 0; i < m_num_tx; ++i) {
                 uint64_t addr = static_cast<uint64_t>(copy_base)
                               + static_cast<uint64_t>(i) * data_len;
+                if (fix_bg_ba) addr &= BG_BA_MASK;
                 m_pre_addrs.push_back(addr);
             }
         }
@@ -85,6 +90,11 @@ void PE::run()
         // No backpressure wait — crossbar drains from the FIFO independently.
         // This eliminates SC_THREAD timing artifacts in address generation.
         for (size_t ai = 0; ai < m_pre_addrs.size(); ++ai) {
+            // Backpressure: wait if input FIFO full
+            while (m_xbar->inputFull(m_noc_port)) {
+                wait(sc_time(1, SC_NS));
+            }
+
             MemTransaction* tx = new MemTransaction();
             tx->address = m_pre_addrs[ai];
             tx->is_write = !m_is_read;

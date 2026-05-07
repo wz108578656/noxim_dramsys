@@ -34,7 +34,11 @@ public:
     // The run() pushes all pre-computed addresses in one burst (no backpressure),
     // eliminating SC_THREAD timing artifacts that cause channel imbalance.
     // num_copies: how many times to repeat the sequence (one per "logical PE" on this port)
-    void enableOneShot(int chShift, int data_len, int num_copies = 1);
+    // fix_bg_ba: if true, clear BG[15:14] and BA[17:16] bits in all addresses
+    //            (keeps only row bits from base_addr). All PEs share same BG/BA,
+    //            differing only by row.
+    void enableOneShot(int chShift, int data_len, int num_copies = 1,
+                       bool fix_bg_ba = false);
 
     // Statistics
     uint64_t tx_sent() const { return m_tx_sent; }

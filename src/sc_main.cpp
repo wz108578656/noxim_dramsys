@@ -8,9 +8,12 @@
 //   Mode B (each PE → dedicated channel, 4× BW):
 //     ./noxim_dramsys --dram-config <json> --noc-mode --noc-tx 1000 --noc-mode-b
 //
+//   VCD waveform trace:
+//     ./noxim_dramsys --dram-config <json> --noc-mode --vcd trace.vcd
+//
 // Address mapping (respects DRAMSys address mapping config):
 //   DDR4  (am_ddr4_4ch.json):  channel = (addr >> 12) & 0x3, bits 13:12
-//   LPDDR4 (am_lpddr4_4ch.json): channel = (addr >> 30) & 0x3, bits 31:30
+//   LPDDR4 (***.json): channel = (addr >> 30) & 0x3, bits 31:30
 //   Mode B: CH0=0x0000, CH1=chShift<<1, CH2=chShift<<2, CH3=chShift<<3
 //
 // Architecture:
@@ -27,6 +30,7 @@
 
 #include <systemc.h>
 #include <tlm.h>
+#include <sysc/tracing/sc_trace.h>
 #include <iostream>
 #include <iomanip>
 #include <string>
@@ -47,18 +51,19 @@ using namespace sc_core;
 // ---------------------------------------------------------------------------
 struct Args {
     string dramConfig;
-    int    nocTx        = 1000;    // transactions per PE
-    int    numPEs       = 4;       // number of PEs
-    double nocRate      = 0.0;     // ns between tx (0 = full speed)
-    double clockPeriod  = 1.0;     // NoC clock period (ns)
-    bool   modeA        = false;   // all PEs → single channel
-    bool   modeB        = false;   // each PE → dedicated channel
-    bool   interleave   = true;    // address-interleave (default)
-    bool   lpddr4       = false;   // use LPDDR4 channel bits [31:30]
-    bool   is_read      = false;   // READ instead of WRITE
+    int    nocTx        = 1000;
+    int    numPEs       = 4;
+    double nocRate      = 0.0;
+    double clockPeriod  = 1.0;
+    bool   modeA        = false;
+    bool   modeB        = false;
+    bool   interleave   = true;
+    bool   lpddr4       = false;
+    bool   is_read      = false;
     int    maxCycles    = 100000;
     bool   experimentCompete  = false;
     bool   experimentOpposite = false;
+    string vcdFile;                // VCD trace file (empty = no trace)
 };
 
 static Args parseArgs(int argc, char** argv)
@@ -74,6 +79,7 @@ static Args parseArgs(int argc, char** argv)
         else if (arg == "--noc-mode-a") { args.modeA = true; args.interleave = false; }
         else if (arg == "--noc-mode-b") { args.modeB = true; args.interleave = false; }
         else if (arg == "--noc-interleave") args.interleave = true;
+        else if (arg == "--vcd" && i + 1 < argc) args.vcdFile = argv[++i];
         else if (arg == "--experiment-compete") {
             args.experimentCompete = true;
             args.interleave = false;
@@ -104,11 +110,10 @@ static Args parseArgs(int argc, char** argv)
                  << "  --lpddr4           Use LPDDR4 channel bits [31:30] (default DDR4 [13:12])\n"
                  << "  --noc-read         Use READ commands (default WRITE)\n"
                  << "  --max-cycles <N>   Max simulation cycles (default 100000)\n"
+                 << "  --vcd <file>       Enable VCD waveform tracing (default off)\n"
                  << "\n  Experiment modes (8 PE, 4000 tx/PE, fixed-channel, crossbar):\n"
                  << "  --experiment-compete   Both groups target same channels (contention)\n"
                  << "  --experiment-opposite  Groups target reversed channels (staggered)\n"
-                 << "\n  DRAM timing: AT protocol via DRAMSys internal scheduler\n"
-                 << "  (tRCD, tCL, tRP, bank conflicts modeled by DRAMSys)\n"
                  << endl;
             exit(0);
         }
@@ -145,20 +150,16 @@ int sc_main(int argc, char** argv)
     int chShift = args.lpddr4 ? 30 : 12;
     cout << "  DRAM: AT protocol, " << (args.lpddr4 ? "LPDDR4" : "DDR4")
          << " (CH bits at [" << chShift + 1 << ":" << chShift << "])" << endl;
+    if (!args.vcdFile.empty())
+        cout << "  VCD trace: " << args.vcdFile << endl;
     cout << "================================================\n" << endl;
 
-    // ---- Checker modules for post-bandwidth data verification ----
-    // (removed — use DramInterface::verifyRead instead)
-    //
     // ---- DRAMSys ----
     DramIf::DramInterface dramIf("DramInterface", args.dramConfig, 0, chShift);
     if (!dramIf.isConfigured()) {
         cerr << "ERROR: DramInterface init failed" << endl;
         return 1;
     }
-
-    // Tell DRAMSys how many external AT initiator threads to expect.
-    // Arbiter needs this before sc_start() to size its internal vectors.
     dramIf.getDramsys()->setThreadCount(4);
 
     // ---- NoC Crossbar ----
@@ -170,11 +171,10 @@ int sc_main(int argc, char** argv)
     xbar.reset(noc_rst);
     xbar.setChannelShift(chShift);
     if (args.modeA) xbar.setForceOutput(0);
-    if (args.interleave) xbar.setInterleaveShift(8);  // 256B granularity
-    // Experiment modes: Scenario 1 (compete) enables crossbar interleave
+    if (args.interleave) xbar.setInterleaveShift(8);
     if (args.experimentCompete) xbar.setInterleaveShift(8);
 
-    // ---- DRAM Channels (bind directly to DRAMSys::tSocket — AT protocol) ----
+    // ---- DRAM Channels ----
     vector<unique_ptr<DramChannel>> dramCh;
     for (int ch = 0; ch < 4; ++ch) {
         auto dc = make_unique<DramChannel>(
@@ -184,13 +184,11 @@ int sc_main(int argc, char** argv)
         dramCh.push_back(move(dc));
     }
 
-     // ---- PEs ---- (N PEs, distributed across 4 channels)
+    // ---- PEs ----
     int pesPerChannel = args.modeA ? args.numPEs : max(1, args.numPEs / 4);
     vector<unique_ptr<PE>> pes;
 
     if (args.experimentCompete || args.experimentOpposite) {
-        // Pre-computed, one-shot PEs: 1 per port (not 4), each with num_copies=4
-        // to replicate 4 logical PEs per port. Eliminates SC_THREAD timing artifacts.
         int port_seq[4][4] = {
             {0, 1, 2, 3},
             {1, 2, 3, 0},
@@ -198,50 +196,62 @@ int sc_main(int argc, char** argv)
             {3, 0, 1, 2}
         };
         for (int port = 0; port < 4; ++port) {
-            uint32_t base_addr = static_cast<uint32_t>(port) * 0x10000;
+            uint32_t base_addr = static_cast<uint32_t>(port) * 0x40000;
             if (args.experimentCompete) {
-                // Scenario 1: interleaving — no chan_seq, raw sequential
                 auto p = make_unique<PE>(
                     sc_module_name(("PE_port" + to_string(port)).c_str()),
                     port, port, &xbar, args.nocTx, base_addr, args.nocRate,
                     args.is_read, 64, false, chShift);
-                // Pre-compute 4 copies of sequential addresses
-                p->enableOneShot(chShift, 64, 4);
+                p->enableOneShot(chShift, 64, 4, true);
                 pes.push_back(move(p));
             } else {
-                // Scenario 2: channel-aware rotated stagger
                 auto p = make_unique<PE>(
                     sc_module_name(("PE_port" + to_string(port)).c_str()),
                     port, port, &xbar, args.nocTx, base_addr, args.nocRate,
                     args.is_read, 64, false, chShift, port_seq[port]);
-                // Pre-compute 4 copies (4 logical PEs per port)
-                p->enableOneShot(chShift, 64, 4);
+                p->enableOneShot(chShift, 64, 4, true);
                 pes.push_back(move(p));
             }
         }
     } else {
         for (int pe = 0; pe < args.numPEs; ++pe) {
-        uint32_t base_addr;
-        int ch = pe % 4;
+            uint32_t base_addr;
+            int ch = pe % 4;
 
-        if (args.modeA) {
-            base_addr = static_cast<uint32_t>(pe) * 0x10000;
-        } else if (args.interleave) {
-            // Interleave: PE handles channel encoding, base_addr is ch-agnostic
-            base_addr = static_cast<uint32_t>(pe) * 0x10000;
-        } else {
-            int subIdx = pe / 4;
-            base_addr = (static_cast<uint32_t>(ch) << chShift)
-                      | (static_cast<uint32_t>(subIdx) * 0x10000);
+            if (args.modeA) {
+                base_addr = static_cast<uint32_t>(pe) * 0x10000;
+            } else if (args.interleave) {
+                base_addr = static_cast<uint32_t>(pe) * 0x10000;
+            } else {
+                int subIdx = pe / 4;
+                base_addr = (static_cast<uint32_t>(ch) << chShift)
+                          | (static_cast<uint32_t>(subIdx) * 0x10000);
+            }
+
+            auto p = make_unique<PE>(
+                sc_module_name(("PE" + to_string(pe)).c_str()),
+                pe, pe % 4, &xbar, args.nocTx, base_addr, args.nocRate,
+                args.is_read, args.lpddr4 ? 32 : 64, args.interleave, chShift);
+            pes.push_back(move(p));
         }
-
-        auto p = make_unique<PE>(
-            sc_module_name(("PE" + to_string(pe)).c_str()),
-            pe, pe % 4, &xbar, args.nocTx, base_addr, args.nocRate,
-            args.is_read, args.lpddr4 ? 32 : 64, args.interleave, chShift);
-        pes.push_back(move(p));
     }
-    }  // end else (non-experiment PEs)
+
+    // ---- VCD trace setup (before sc_start) ----
+    sc_core::sc_trace_file* vcd_tf = nullptr;
+    if (!args.vcdFile.empty()) {
+        vcd_tf = sc_create_vcd_trace_file(args.vcdFile.c_str());
+
+        // System-level signals
+        sc_trace(vcd_tf, noc_clk, "noc_clk");
+        sc_trace(vcd_tf, noc_rst, "noc_rst");
+
+        // Module signals
+        xbar.traceAll(vcd_tf);
+        for (int ch = 0; ch < 4; ++ch)
+            dramCh[ch]->traceAll(vcd_tf);
+
+        cout << "  [VCD trace] Writing to " << args.vcdFile << endl;
+    }
 
     // ---- Run simulation ----
     cout << "\n--- Starting simulation ---" << endl;
@@ -250,8 +260,7 @@ int sc_main(int argc, char** argv)
     sc_start(10, SC_NS);
     noc_rst.write(0);
 
-    // Run until all DramChannels complete their transactions
-    sc_time poll_interval(100, SC_NS);   // poll every 100 ns for precise timing
+    sc_time poll_interval(100, SC_NS);
     sc_time timeout(args.maxCycles * args.clockPeriod, SC_NS);
     sc_time t0 = sc_time_stamp();
 
@@ -260,21 +269,18 @@ int sc_main(int argc, char** argv)
 
         bool allDone = true;
         if (args.experimentCompete || args.experimentOpposite) {
-            // Per-channel check: all 4 channels must reach their target
-            // (16 PE x 2000 tx / 4 channels = 8000 per channel)
             uint64_t perChTarget = static_cast<uint64_t>(args.nocTx) * args.numPEs / 4;
             for (int ch = 0; ch < 4; ++ch) {
                 if (dramCh[ch]->completed() < perChTarget)
                     allDone = false;
             }
         } else if (args.interleave) {
-            // Check total across all channels
             uint64_t totalCompleted = 0;
             for (int ch = 0; ch < 4; ++ch)
                 totalCompleted += dramCh[ch]->completed();
             if (totalCompleted < static_cast<uint64_t>(args.nocTx) * args.numPEs)
                 allDone = false;
-        } else {
+        } else if (args.experimentCompete || args.experimentOpposite) {
             for (int ch = 0; ch < 4; ++ch) {
                 int expectedTx = args.modeA ? (ch == 0 ? args.nocTx * args.numPEs : 0)
                               : args.nocTx * pesPerChannel;
@@ -289,8 +295,7 @@ int sc_main(int argc, char** argv)
         }
     }
 
-    // Wait for DRAMSys internal pipeline to drain AND all DramChannel
-    // pending transactions to complete.
+    // Drain pipeline
     cout << "  [Drain] Waiting for pipeline to drain..." << endl;
     for (int drain = 0; drain < 200; ++drain) {
         sc_start(sc_time(100, SC_NS));
@@ -302,9 +307,15 @@ int sc_main(int argc, char** argv)
         if (allIdle && noPending) break;
     }
 
+    // Close VCD trace file (flush before final time)
+    if (vcd_tf) {
+        sc_close_vcd_trace_file(vcd_tf);
+        cout << "  [VCD trace] Closed " << args.vcdFile << endl;
+    }
+
     double sim_time_ns = sc_time_stamp().to_seconds() * 1e9;
 
-    // ---- Report ---- (DramChannel-based for all modes)
+    // ---- Report ----
     cout << "\n============ NoC + DRAMSys Bandwidth Report ============" << endl;
     cout << "  Mode: " << modeStr << endl;
     cout << "  Simulation time: " << fixed << setprecision(1)
@@ -314,7 +325,7 @@ int sc_main(int argc, char** argv)
     for (int ch = 0; ch < 4; ++ch) {
         uint64_t chBytes = dramCh[ch]->bytesTransferred();
         uint64_t chTx    = dramCh[ch]->completed();
-        double chBW = (sim_time_ns > 0) ? (chBytes / sim_time_ns) : 0.0;  // GB/s
+        double chBW = (sim_time_ns > 0) ? (chBytes / sim_time_ns) : 0.0;
 
         cout << "  CH" << ch << ": " << chTx << " tx, "
              << chBytes << " bytes, "
@@ -322,7 +333,6 @@ int sc_main(int argc, char** argv)
         totalBytes += chBytes;
     }
 
-    // Show crossbar routing stats for debugging
     if (args.experimentCompete || args.experimentOpposite) {
         cout << "  [Xbar routed] ";
         for (int out = 0; out < 4; ++out) {
@@ -340,21 +350,15 @@ int sc_main(int argc, char** argv)
     cout << "========================================================\n" << endl;
 
     // ---- Data consistency check ----
-    // DRAMSys blocking mode: all channels share one physical address space.
-    // Last writer wins. Verify that data can be written and read back.
     {
         cout << "============ Data Consistency Check ============" << endl;
 
-        // Write a fresh verification pattern through the NoC (via a single
-        // DramChannel doing a blocking write), then read back via verifyRead.
         int errors = 0;
 
         for (int ch = 0; ch < 4; ++ch) {
-            // Write unique per-channel verification pattern
             uint32_t vpattern = 0xBEEF0000 | (ch << 8);
-            uint64_t vaddr = static_cast<uint64_t>(ch) * 256;  // separate pages
+            uint64_t vaddr = static_cast<uint64_t>(ch) * 256;
 
-            // Write via DramInterface directly (bypass NoC for verification)
             {
                 tlm::tlm_generic_payload wtrans;
                 wtrans.set_command(tlm::TLM_WRITE_COMMAND);
@@ -369,7 +373,6 @@ int sc_main(int argc, char** argv)
                 dramIf.getDramsys()->b_transport(wtrans, d);
             }
 
-            // Read back and verify
             uint32_t readback = 0;
             bool ok = dramIf.verifyRead(ch, vaddr, &readback, sizeof(readback));
 
@@ -388,10 +391,9 @@ int sc_main(int argc, char** argv)
 
         cout << "  Errors: " << errors << endl;
         cout << "  Overall: " << (errors == 0 ? "PASS" : "FAIL") << endl;
-        cout << "  (Note: blocking mode shares one physical space;" << endl;
-        cout << "   per-channel isolation requires AT cycle-accurate mode)" << endl;
         cout << "================================================\n" << endl;
     }
+
     sc_stop();
     return 0;
 }

@@ -128,6 +128,7 @@ Experiment modes use:
 - 1 PE per port (4 total), each with `enableOneShot(num_copies=4)` = 16 logical PEs
 - 2000 tx per logical PE, 0.2ns NoC clock
 - pre-computed addresses, no SC_THREAD backpressure artifacts
+- `fix_bg_ba=true` (Series 3): forces BG=0, BA=0 for all addresses via `~0xF << 14` mask, isolating pure row-level bank contention
 
 ### CLI Options
 
@@ -151,40 +152,62 @@ Experiment modes use:
 
 ## Experiment Results
 
-### Design
+### Three Experiment Series
 
-Compare two DRAM access strategies with 16 PEs on 4 crossbar ports:
+Three comparison series have been run, progressively constraining the address space to isolate specific DRAM-level effects.
 
-**Scenario 1 (Interleaving):** Crossbar routes based on low address bits (ilShift shift=8). PEs send sequential addresses with no channel awareness. The hardware distributes traffic randomly.
+All series: DDR4-1866, 16 PE (4 ports × 4 copies), 2000 tx/PE, 0.2ns NoC clock, AT cycle-accurate.
 
-**Scenario 2 (Channel-aware Rotated Stagger):** Each port uses a rotated channel sequence to avoid channel conflicts:
+**Series 1 — Default (no row offset, natural BG/BA distribution)**
 
-```
-Port 0: [0,1,2,3]  → starts from ch0
-Port 1: [1,2,3,0]  → starts from ch1
-Port 2: [2,3,0,1]  → starts from ch2
-Port 3: [3,0,1,2]  → starts from ch3
-```
+No row stagger. All PEs use base_addr=0x0. BG/BA bits cycle naturally with sequential addressing on each channel. This is the baseline reference.
 
-Every cycle, all 4 ports target different channels → no crossbar output port contention.
-
-### DDR4 AT Cycle-Accurate (8000 tx/ch, 2000 tx/PE, 0.2ns NoC clock)
-
-| Metric | Interleaving | Channel-Aware (Rotated Stagger) | Difference |
+| Metric | Interleaving | Channel-aware (Rotated Stagger) | Difference |
 |--------|:------------:|:-------------------------------:|:----------:|
-| Simulation time | **42510 ns** | 44210 ns | **+4%** |
-| Total bandwidth | **48.18 GB/s** | 46.32 GB/s | **+4%** |
-| Channel distribution | 8000/8000/8000/8000 | 8000/8000/8000/8000 | Balanced |
-| DRAM Utilization | ~80% | ~78% | +2% |
-| Data consistency | PASS | PASS | — |
+| Simulation time | **37.1 us** | 44.2 us | **-16%** |
+| Total bandwidth | **55.82 GB/s** | 46.30 GB/s | **+20.5%** |
+| Channel dist. | 8000/8000/8000/8000 | 8000/8000/8000/8000 | Balanced |
+| DRAM utilization | 81% | 69% | +12pp |
+
+Interleaving wins by ~20% — cross-channel round-robin creates random bank access patterns, letting the DRAM scheduler exploit bank-level parallelism. Channel-aware block burst hits sequential columns in the same bank, limiting scheduler flexibility.
+
+**Series 2 — Row offset (different row per port, natural BG/BA)**
+
+Each port assigned a distinct row: base_addr = port × 0x44000. Different ports hit different ROW + BG bits, but within a port all transactions stay in the same row (tx range < 1 row width).
+
+| Metric | Interleaving | Channel-aware (Rotated Stagger) | Difference |
+|--------|:------------:|:-------------------------------:|:----------:|
+| Simulation time | 40.71 us | 44.21 us | **-7.9%** |
+| Total bandwidth | 50.31 GB/s | 46.32 GB/s | **+8.6%** |
+| Channel dist. | 8000/8000/8000/8000 | 8000/8000/8000/8000 | Balanced |
+| DRAM utilization | 84% | 78% | +6pp |
+
+Interleaving advantage shrinks from 20.5% to 8.6%. Row-offset forces precharge+activate on cross-port row switches, partially offsetting the bank-level parallelism benefit.
+
+**Series 3 — Row offset + same BG/BA (all PEs share BG=0, BA=0)**
+
+All port addresses have BG[15:14] and BA[17:16] zeroed via `fix_bg_ba=true`. All traffic goes to bank group 0, bank 0. PEs differ only by row. Designed to isolate bank-level contention effects.
+
+| Metric | Interleaving | Channel-aware (Rotated Stagger) | Difference |
+|--------|:------------:|:-------------------------------:|:----------:|
+| Simulation time | 118.9 us | **45.5 us** | **+161%** |
+| Total bandwidth | 17.22 GB/s | **45.00 GB/s** | **-61.7%** |
+| Channel dist. | 8000/8000/8000/8000 | 8000/8000/8000/8000 | Balanced |
+| DRAM utilization | 29% | **75%** | -46pp |
+
+**Channel-aware dominates when BG/BA are fixed.** The result flips completely.
 
 ### Key Findings
 
-1. **Both strategies produce perfectly balanced channel distribution** (after fixing the address encoding bug — channel bits must be isolated from low address bits)
-2. **Interleaving is ~4% faster** due to more randomized DRAM bank access → better bank-level parallelism
-3. **Channel-aware rotated stagger is a valid alternative** when channel isolation is needed (e.g., NUMA-aware scheduling)
-4. **Crossbar design matters**: per-input serving with rotating start eliminates output priority bias
-5. **Pre-computed one-shot PE mode** eliminates SC_THREAD timing artifacts that cause channel imbalance under backpressure-driven FIFO fill
+1. **Interleaving's advantage depends entirely on bank-level parallelism.** When BG/BA bits are naturally distributed across accesses, interleaving outperforms channel-aware by ~20% (55.82 vs 46.30 GB/s). The cross-channel round-robin randomly hits different banks, letting the DRAM scheduler parallelize.
+
+2. **Row staggering alone does not change the story.** Adding row offset per port shrinks the gap from 20.5% to 8.6%, but interleaving still leads. Row switching overhead (tRP + tRCD) partially offsets bank parallelism.
+
+3. **When all traffic is forced to the same bank (BG=0, BA=0), channel-aware dominates.** Interleaving drops to 17.22 GB/s (29% util) because each port alternation forces a precharge+activate on a different row. Channel-aware stays at 45.00 GB/s (75% util) because each 500-tx block burst on a single channel hits the same row → pure row-hit streaming.
+
+4. **Channel-aware block burst is inherently bank-friendly.** Sequential writes to the same row within a bank are DRAM's fastest access pattern. As long as the burst length is sufficient to amortize the initial precharge+activate cost, channel-aware bandwidth is insensitive to BG/BA constraints.
+
+5. **Bank-level parallelism is the single most important factor for interleaving performance.** A practical memory controller should combine: (a) address mapping that interleaves bank bits across sequential addresses (bank-first mapping), and (b) channel-level interleaving for load-balanced access.
 
 ### Performance Results (Standard Modes)
 
