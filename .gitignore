@@ -10,4 +10,6 @@ cmake_install.cmake
 Makefile
 CTestTestfile.cmake
 _deps/
-.tdb
+*.tdb
+*.vcd
+vcd_backup/
