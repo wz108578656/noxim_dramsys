@@ -28,10 +28,6 @@ struct MemTransaction;
 namespace DRAMSys { class Arbiter; }
 
 // Minimal memory manager for tlm_generic_payload.
-// DRAMSys requires m_mm != 0 for set_extension in ArbiterExtension.
-// Heap-allocated (never deleted) so it outlives DramChannel at shutdown.
-// free() deletes the payload when SystemC refcount reaches 0 —
-// this is the only safe time to delete, after all acquires are released.
 class SimpleMM : public tlm::tlm_mm_interface
 {
 public:
@@ -69,6 +65,9 @@ public:
     uint64_t bytesTransferred() const { return m_bytes; }
     int channel() const { return m_channel; }
 
+    // ---- VCD trace ----
+    void traceAll(sc_core::sc_trace_file* tf) const;
+
 private:
     void process();
 
@@ -80,16 +79,39 @@ private:
 
     int m_channel;
     int m_tag;
-    int m_maxInFlight = 128;  // match DRAMSys MaxActiveTransactions
+    int m_maxInFlight = 128;
     NoCXbar* m_xbar;
     uint64_t m_completed;
     uint64_t m_bytes;
 
     // AT pipeline state
-    SimpleMM* m_mm;  // heap-allocated, outlives DramChannel
-    std::deque<PendingTx> m_pending;   // FIFO of in-flight transactions
-    std::deque<PendingTx> m_doneQueue; // completed, waiting for MemTransaction cleanup
-    sc_core::sc_event m_pendingSlot;   // fired when a slot frees up
+    SimpleMM* m_mm;
+    std::deque<PendingTx> m_pending;
+    std::deque<PendingTx> m_doneQueue;
+    sc_core::sc_event m_pendingSlot;
+
+    // ==================================================================
+    // VCD trace signals
+
+    // Control flow
+    sc_signal<int>      m_sig_pending;
+    sc_signal<bool>     m_sig_blocked;
+    sc_signal<uint64_t> m_sig_completed;
+    sc_signal<uint64_t> m_sig_bytes;
+
+    // Write request (set in process() before nb_transport_fw)
+    sc_signal<uint64_t> m_sig_tx_addr;
+    sc_signal<int>      m_sig_tx_cmd;       // 0=WRITE, 1=READ
+    sc_signal<unsigned int> m_sig_tx_data_len;
+    sc_signal<int>      m_sig_tx_id;
+    sc_signal<uint64_t> m_sig_write_data_lo;
+    sc_signal<uint64_t> m_sig_write_data_hi;
+
+    // Read response (set in nb_transport_bw on BEGIN_RESP)
+    sc_signal<uint64_t> m_sig_resp_addr;
+    sc_signal<int>      m_sig_resp_id;
+    sc_signal<uint64_t> m_sig_read_data_lo;
+    sc_signal<uint64_t> m_sig_read_data_hi;
 };
 
 #endif // DRAM_CHANNEL_H

@@ -1,12 +1,11 @@
 // ============================================================================
-// noc_xbar.h — Cycle-accurate 4×4 non-blocking crossbar
+// noc_xbar.h — Cycle-accurate 4x4 non-blocking crossbar
 // ============================================================================
 // Clock-driven SC_METHOD. Each cycle:
 //   - Scans 4 input FIFOs (max 1 flit per input per cycle)
-//   - Extracts target channel from address bits [29:28]
-//   - Round-robin arbitration per output port
-//   - Different output ports proceed in parallel (non-blocking)
-//   - Strips channel bits from address before forwarding
+//   - Extracts target channel from address bits
+//   - Per-input serving: each input pops one transaction per cycle
+//   - Rotating in_start to prevent input starvation
 // ============================================================================
 #ifndef NOC_XBAR_H
 #define NOC_XBAR_H
@@ -14,7 +13,6 @@
 #include <systemc.h>
 #include <queue>
 #include <cstdint>
-#include <mutex>
 
 static const int XBAR_PORTS = 4;
 static const int XBAR_FIFO_DEPTH = 64;
@@ -23,16 +21,16 @@ static const int XBAR_FIFO_DEPTH = 64;
 // Memory transaction descriptor (passes through NoC)
 // ---------------------------------------------------------------------------
 struct MemTransaction {
-    uint64_t address;       // full address (channel encoded at [29:28])
+    uint64_t address;       // full address (channel encoded at CH bits)
     bool     is_write;
     uint32_t data[16];      // 64 bytes max
     uint8_t  data_len;
     int      pe_id;
-    int      tag;
+    int      tag;           // transaction sequence id
 };
 
 // ---------------------------------------------------------------------------
-// NoCXbar — 4×4 crossbar switch
+// NoCXbar — 4x4 crossbar switch
 // ---------------------------------------------------------------------------
 SC_MODULE(NoCXbar)
 {
@@ -53,21 +51,22 @@ public:
     bool popOutput(int channel, MemTransaction*& tx);
 
     // Configurable channel bit position (set before simulation)
-    void setChannelShift(int shift) { m_chShift = shift; }
+    void setChannelShift(int shift) { m_chShift = shift; m_sig_ch_shift.write(shift); }
     int  channelShift() const { return m_chShift; }
 
     // Force all traffic to a single output port (Mode A: baseline BW test)
-    void setForceOutput(int port) { m_forceOutput = port; m_forceEnable = true; }
-    void clearForceOutput()      { m_forceEnable = false; }
+    void setForceOutput(int port) { m_forceOutput = port; m_forceEnable = true; m_sig_force_enable.write(true); }
+    void clearForceOutput()      { m_forceEnable = false; m_sig_force_enable.write(false); }
 
     // Interleave: address-based channel selection using low address bits.
-    // setInterleaveShift(N): channel = (addr >> N) & 0x3.
-    // DDR4 example: N=8 → 256B interleave granularity (COL bits [9:8]).
     void setInterleaveShift(int shift) { m_ilShift = shift; m_interleave = (shift >= 0); }
 
     // Statistics
     uint64_t routedCount(int channel) const { return m_routed[channel]; }
     uint64_t inputPopCount(int port) const { return m_input_pops[port]; }
+
+    // ---- VCD trace ----
+    void traceAll(sc_core::sc_trace_file* tf) const;
 
 private:
     void routeProcess();   // SC_METHOD: 1 cycle of routing
@@ -82,20 +81,35 @@ private:
     int  m_rr[XBAR_PORTS];
 
     // Channel bit shift for routing (DDR4=12, LPDDR4=30)
-    int  m_chShift = 28;  // default: legacy [29:28]
+    int  m_chShift = 28;
+    int  m_ilShift = 8;
+    bool m_interleave = false;
 
     // Force-output mode (Mode A: all traffic to one channel)
     int  m_forceOutput = 0;
     bool m_forceEnable = false;
 
-    // Interleave mode: address-based channel selection
-    bool m_interleave = false;
-    int  m_ilShift = 8;  // default: 256B granularity
-
-    // Per-output routed counter
+    // Per-output routed counter / per-input pop counter
     uint64_t m_routed[XBAR_PORTS];
-    // Per-input pop counter (debug)
     uint64_t m_input_pops[XBAR_PORTS];
+
+    // ==================================================================
+    // VCD trace signals
+
+    // Layer 1: PE → NoC input port signals (updated on pushInput)
+    sc_signal<int>      m_sig_in_fifo_depth[XBAR_PORTS];
+    sc_signal<uint64_t> m_sig_inject_addr[XBAR_PORTS];
+    sc_signal<int>      m_sig_inject_cmd[XBAR_PORTS];   // 0=WRITE, 1=READ
+    sc_signal<uint64_t> m_sig_inject_data_lo[XBAR_PORTS];
+    sc_signal<uint64_t> m_sig_inject_data_hi[XBAR_PORTS];
+    sc_signal<int>      m_sig_inject_id[XBAR_PORTS];
+
+    // Layer 2: Crossbar internal
+    sc_signal<int>      m_sig_out_fifo_depth[XBAR_PORTS];
+    sc_signal<uint64_t> m_sig_routed[XBAR_PORTS];
+    sc_signal<int>      m_sig_in_start;
+    sc_signal<bool>     m_sig_force_enable;
+    sc_signal<int>      m_sig_ch_shift;
 };
 
 #endif // NOC_XBAR_H
