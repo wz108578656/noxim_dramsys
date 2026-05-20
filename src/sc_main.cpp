@@ -1,33 +1,8 @@
 // ============================================================================
-// sc_main.cpp — NoC-Mesh + DRAMSys co-simulation top-level
+// sc_main.cpp — NoC-Mesh (Noxim) + DRAMSys co-simulation top-level
 // ============================================================================
-// Usage:
-//   Mode A (all PEs → single channel, 1× BW):
-//     ./noxim_dramsys --dram-config <json> --noc-mode --noc-tx 1000 --noc-mode-a
-//
-//   Mode B (each PE → dedicated channel, 4× BW):
-//     ./noxim_dramsys --dram-config <json> --noc-mode --noc-tx 1000 --noc-mode-b
-//
-//   VCD waveform trace:
-//     ./noxim_dramsys --dram-config <json> --noc-mode --vcd trace.vcd
-//
-// Address mapping (respects DRAMSys address mapping config):
-//   DDR4  (am_ddr4_4ch.json):  channel = (addr >> 12) & 0x3, bits 13:12
-//   LPDDR4 (***.json): channel = (addr >> 30) & 0x3, bits 31:30
-//   Mode B: CH0=0x0000, CH1=chShift<<1, CH2=chShift<<2, CH3=chShift<<3
-//
-// Architecture:
-//   PE[0] ──► inFIFO[0] ──┐                    ┌── outFIFO[0] ──► DramCh[0] ──┐
-//   PE[1] ──► inFIFO[1] ──┤  NoCXbar (SC_METHOD)├── outFIFO[1] ──► DramCh[1] ──┤
-//   PE[2] ──► inFIFO[2] ──┤  每周期路由+仲裁      ├── outFIFO[2] ──► DramCh[2] ──┤  DRAMSys::tSocket
-//   PE[3] ──► inFIFO[3] ──┘                    └── outFIFO[3] ──► DramCh[3] ──┘  (AT protocol)
-//
-//   DramChannel uses AT protocol (nb_transport_fw) directly into
-//   DRAMSys::tSocket — the standard DRAMSys RequestIssuer pattern.
-//   DRAMSys internal scheduler provides cycle-accurate DRAM timing
-//   (tRCD, tCL, tRP, bank conflicts, refresh, etc.).
+// Architecture: 2x4 Noxim mesh with 4 TrafficPEs (row 0) + 4 DramPEs (row 1)
 // ============================================================================
-
 #include <systemc.h>
 #include <tlm.h>
 #include <sysc/tracing/sc_trace.h>
@@ -38,10 +13,11 @@
 #include <memory>
 #include <vector>
 
-#include "noc_xbar.h"
-#include "pe.h"
-#include "dram_channel.h"
+#include "traffic_pe.h"
+#include "dram_pe.h"
+#include "noc_mesh_wiring.h"
 #include "DramInterface.h"
+#include "GlobalParams.h"
 
 using namespace std;
 using namespace sc_core;
@@ -63,7 +39,7 @@ struct Args {
     int    maxCycles    = 100000;
     bool   experimentCompete  = false;
     bool   experimentOpposite = false;
-    string vcdFile;                // VCD trace file (empty = no trace)
+    string vcdFile;
 };
 
 static Args parseArgs(int argc, char** argv)
@@ -100,20 +76,20 @@ static Args parseArgs(int argc, char** argv)
         else if (arg == "--noc-read") args.is_read = true;
         else if (arg == "--max-cycles" && i + 1 < argc) args.maxCycles = atoi(argv[++i]);
         else if (arg == "-h" || arg == "--help") {
-            cout << "Usage: " << argv[0] << " --dram-config <json> --noc-mode [opts]\n"
+            cout << "Usage: " << argv[0] << " --dram-config <json> [opts]\n"
                  << "  --noc-tx <N>       Transactions per PE (default 1000)\n"
-                 << "  --noc-pe <N>       Number of PEs (default 4, max 32)\n"
+                 << "  --noc-pe <N>       Number of PEs (default 4)\n"
                  << "  --noc-rate <ns>    Injection interval in ns (0=max)\n"
                  << "  --noc-clock <ns>   NoC clock period (default 1.0ns)\n"
-                 << "  --noc-mode-a       All PEs → single channel (1× BW)\n"
-                 << "  --noc-mode-b       Each PE → own channel (4× BW, default)\n"
-                 << "  --lpddr4           Use LPDDR4 channel bits [31:30] (default DDR4 [13:12])\n"
-                 << "  --noc-read         Use READ commands (default WRITE)\n"
-                 << "  --max-cycles <N>   Max simulation cycles (default 100000)\n"
-                 << "  --vcd <file>       Enable VCD waveform tracing (default off)\n"
-                 << "\n  Experiment modes (8 PE, 4000 tx/PE, fixed-channel, crossbar):\n"
-                 << "  --experiment-compete   Both groups target same channels (contention)\n"
-                 << "  --experiment-opposite  Groups target reversed channels (staggered)\n"
+                 << "  --noc-mode-a       All PEs -> single channel (1x BW)\n"
+                 << "  --noc-mode-b       Per-channel (4x BW, default)\n"
+                 << "  --lpddr4           LPDDR4 CH bits [31:30]\n"
+                 << "  --noc-read         READ transactions (default WRITE)\n"
+                 << "  --max-cycles <N>   Max cycles (default 100000)\n"
+                 << "  --vcd <file>       VCD trace\n"
+                 << "\n  Experiment modes:\n"
+                 << "  --experiment-compete   Interleave (16 PE, 4x4 crossbar route)\n"
+                 << "  --experiment-opposite  Channel-aware rotated stagger\n"
                  << endl;
             exit(0);
         }
@@ -122,7 +98,7 @@ static Args parseArgs(int argc, char** argv)
 }
 
 // ---------------------------------------------------------------------------
-// Main
+// sc_main
 // ---------------------------------------------------------------------------
 int sc_main(int argc, char** argv)
 {
@@ -133,26 +109,49 @@ int sc_main(int argc, char** argv)
         return 1;
     }
 
-    // ---- Header banner ----
+    // ---- Banner ----
     string modeStr;
-    if (args.experimentCompete) modeStr = "Experiment: Interleave (16 PE, 4 ports)";
-    else if (args.experimentOpposite) modeStr = "Experiment: Channel-aware (16 PE, 4 ports)";
-    else if (args.modeA) modeStr = "A (all->1ch, 1xBW)";
-    else modeStr = "B (per-ch, 4xBW)";
+    if (args.experimentCompete) modeStr = "Experiment: Interleave (16 PE, 2x4 mesh)";
+    else if (args.experimentOpposite) modeStr = "Experiment: Channel-aware (16 PE, 2x4 mesh)";
+    else if (args.modeA) modeStr = "A (all->1ch, 1xBW, 2x4 mesh)";
+    else modeStr = "B (per-ch, 4xBW, 2x4 mesh)";
+
+    int chShift = args.lpddr4 ? 30 : 12;
 
     cout << "\n================================================" << endl;
-    cout << "  NoC + DRAMSys Co-Simulation" << endl;
+    cout << "  NoC (Noxim 2x4 mesh) + DRAMSys Co-Simulation" << endl;
     cout << "  Mode: " << modeStr << endl;
     cout << "  PEs: " << args.numPEs << endl;
     cout << "  Transactions/PE: " << args.nocTx << endl;
     cout << "  Clock: " << args.clockPeriod << "ns" << endl;
-
-    int chShift = args.lpddr4 ? 30 : 12;
-    cout << "  DRAM: AT protocol, " << (args.lpddr4 ? "LPDDR4" : "DDR4")
+    cout << "  DRAM: " << (args.lpddr4 ? "LPDDR4" : "DDR4")
          << " (CH bits at [" << chShift + 1 << ":" << chShift << "])" << endl;
     if (!args.vcdFile.empty())
         cout << "  VCD trace: " << args.vcdFile << endl;
     cout << "================================================\n" << endl;
+
+    // ---- Configure Noxim GlobalParams ----
+    GlobalParams::topology = "MESH";
+    GlobalParams::mesh_dim_x = 4;
+    GlobalParams::mesh_dim_y = 2;
+    GlobalParams::buffer_depth = 8;
+    GlobalParams::flit_size = 32;
+    GlobalParams::n_virtual_channels = 1;
+    GlobalParams::routing_algorithm = "XY";
+    GlobalParams::selection_strategy = "RANDOM";
+    GlobalParams::clock_period_ps = static_cast<int>(args.clockPeriod * 1000);
+    GlobalParams::use_winoc = false;
+    GlobalParams::min_packet_size = 18;
+    GlobalParams::max_packet_size = 18;
+    GlobalParams::packet_injection_rate = 1.0;
+    GlobalParams::probability_of_retransmission = 0.0;
+    GlobalParams::simulation_time = args.maxCycles;
+    GlobalParams::stats_warm_up_time = 0;
+    GlobalParams::reset_time = 1;
+    GlobalParams::max_volume_to_be_drained = 0;
+    GlobalParams::verbose_mode = "VERBOSE_OFF";
+    GlobalParams::log_level = "OFF";
+    GlobalParams::detailed = false;
 
     // ---- DRAMSys ----
     DramIf::DramInterface dramIf("DramInterface", args.dramConfig, 0, chShift);
@@ -162,94 +161,74 @@ int sc_main(int argc, char** argv)
     }
     dramIf.getDramsys()->setThreadCount(4);
 
-    // ---- NoC Crossbar ----
+    // ---- Clock & Reset ----
     sc_clock noc_clk("noc_clk", args.clockPeriod, SC_NS);
     sc_signal<bool> noc_rst("noc_rst");
 
-    NoCXbar xbar("NoCXbar");
-    xbar.clock(noc_clk);
-    xbar.reset(noc_rst);
-    xbar.setChannelShift(chShift);
-    if (args.modeA) xbar.setForceOutput(0);
-    if (args.interleave) xbar.setInterleaveShift(8);
-    if (args.experimentCompete) xbar.setInterleaveShift(8);
+    // ---- Create TrafficPEs (row 0, one per DRAM channel) ----
+    int numDataPEs = 4;  // 4 PEs in a 2x4 mesh
+    TrafficPE* pes[4];
+    for (int pe = 0; pe < numDataPEs; ++pe) {
+        uint32_t base_addr;
+        int ch = pe % 4;
+        bool use_interleave = args.interleave || args.experimentCompete;
 
-    // ---- DRAM Channels ----
-    vector<unique_ptr<DramChannel>> dramCh;
+        if (args.modeA) {
+            base_addr = static_cast<uint32_t>(pe) * 0x10000;
+        } else if (use_interleave) {
+            base_addr = static_cast<uint32_t>(pe) * 0x10000;
+        } else {
+            int subIdx = pe / 4;
+            base_addr = (static_cast<uint32_t>(ch) << chShift)
+                      | (static_cast<uint32_t>(subIdx) * 0x10000);
+        }
+
+        // Experiment mode port sequences
+        int port_seq[4] = {-1, -1, -1, -1};
+        if (args.experimentOpposite) {
+            static const int opp_seq[4][4] = {
+                {0, 1, 2, 3}, {1, 2, 3, 0},
+                {2, 3, 0, 1}, {3, 0, 1, 2}
+            };
+            for (int d = 0; d < 4; ++d)
+                port_seq[d] = opp_seq[pe][d];
+        }
+
+        int data_len = args.lpddr4 ? 32 : 64;
+        int force_ch = args.modeA ? 0 : -1;
+        auto* p = new TrafficPE(
+            sc_module_name(("PE" + to_string(pe)).c_str()),
+            pe, args.nocTx, base_addr, args.nocRate, args.is_read,
+            data_len, use_interleave, chShift,
+            port_seq[0] >= 0 ? port_seq : nullptr,
+            force_ch);
+
+        // Enable one-shot if experiment mode
+        if (args.experimentCompete || args.experimentOpposite) {
+            p->enableOneShot(chShift, 64, 4, false);
+        }
+        pes[pe] = p;
+    }
+
+    // ---- Create DramPEs (row 1, one per channel) ----
+    DramPE* drams[4];
     for (int ch = 0; ch < 4; ++ch) {
-        auto dc = make_unique<DramChannel>(
-            sc_module_name(("DramCh" + to_string(ch)).c_str()),
-            ch, &xbar);
-        dc->bindToDramsys(dramIf.getDramsys()->getArbiterTargetSocket(), ch);
-        dramCh.push_back(move(dc));
+        drams[ch] = new DramPE(
+            sc_module_name(("DramPE" + to_string(ch)).c_str()), ch);
+        auto& sock = dramIf.getDramsys()->getArbiterTargetSocket();
+        drams[ch]->bindToDramsys(&sock, ch);
     }
 
-    // ---- PEs ----
-    int pesPerChannel = args.modeA ? args.numPEs : max(1, args.numPEs / 4);
-    vector<unique_ptr<PE>> pes;
+    // ---- Create 2x4 Noxim Mesh ----
+    NocMeshWiring mesh("noc_mesh");
+    mesh.create(pes, drams, noc_clk, noc_rst);
 
-    if (args.experimentCompete || args.experimentOpposite) {
-        int port_seq[4][4] = {
-            {0, 1, 2, 3},
-            {1, 2, 3, 0},
-            {2, 3, 0, 1},
-            {3, 0, 1, 2}
-        };
-        for (int port = 0; port < 4; ++port) {
-            uint32_t base_addr = static_cast<uint32_t>(port) * 0x40000;
-            if (args.experimentCompete) {
-                auto p = make_unique<PE>(
-                    sc_module_name(("PE_port" + to_string(port)).c_str()),
-                    port, port, &xbar, args.nocTx, base_addr, args.nocRate,
-                    args.is_read, 64, false, chShift);
-                p->enableOneShot(chShift, 64, 4, true);
-                pes.push_back(move(p));
-            } else {
-                auto p = make_unique<PE>(
-                    sc_module_name(("PE_port" + to_string(port)).c_str()),
-                    port, port, &xbar, args.nocTx, base_addr, args.nocRate,
-                    args.is_read, 64, false, chShift, port_seq[port]);
-                p->enableOneShot(chShift, 64, 4, true);
-                pes.push_back(move(p));
-            }
-        }
-    } else {
-        for (int pe = 0; pe < args.numPEs; ++pe) {
-            uint32_t base_addr;
-            int ch = pe % 4;
-
-            if (args.modeA) {
-                base_addr = static_cast<uint32_t>(pe) * 0x10000;
-            } else if (args.interleave) {
-                base_addr = static_cast<uint32_t>(pe) * 0x10000;
-            } else {
-                int subIdx = pe / 4;
-                base_addr = (static_cast<uint32_t>(ch) << chShift)
-                          | (static_cast<uint32_t>(subIdx) * 0x10000);
-            }
-
-            auto p = make_unique<PE>(
-                sc_module_name(("PE" + to_string(pe)).c_str()),
-                pe, pe % 4, &xbar, args.nocTx, base_addr, args.nocRate,
-                args.is_read, args.lpddr4 ? 32 : 64, args.interleave, chShift);
-            pes.push_back(move(p));
-        }
-    }
-
-    // ---- VCD trace setup (before sc_start) ----
+    // ---- VCD trace ----
     sc_core::sc_trace_file* vcd_tf = nullptr;
     if (!args.vcdFile.empty()) {
         vcd_tf = sc_create_vcd_trace_file(args.vcdFile.c_str());
-
-        // System-level signals
         sc_trace(vcd_tf, noc_clk, "noc_clk");
         sc_trace(vcd_tf, noc_rst, "noc_rst");
-
-        // Module signals
-        xbar.traceAll(vcd_tf);
-        for (int ch = 0; ch < 4; ++ch)
-            dramCh[ch]->traceAll(vcd_tf);
-
         cout << "  [VCD trace] Writing to " << args.vcdFile << endl;
     }
 
@@ -267,47 +246,36 @@ int sc_main(int argc, char** argv)
     while (true) {
         sc_start(poll_interval);
 
-        bool allDone = true;
-        if (args.experimentCompete || args.experimentOpposite) {
-            uint64_t perChTarget = static_cast<uint64_t>(args.nocTx) * args.numPEs / 4;
-            for (int ch = 0; ch < 4; ++ch) {
-                if (dramCh[ch]->completed() < perChTarget)
-                    allDone = false;
-            }
-        } else if (args.interleave) {
-            uint64_t totalCompleted = 0;
-            for (int ch = 0; ch < 4; ++ch)
-                totalCompleted += dramCh[ch]->completed();
-            if (totalCompleted < static_cast<uint64_t>(args.nocTx) * args.numPEs)
-                allDone = false;
-        } else if (args.experimentCompete || args.experimentOpposite) {
-            for (int ch = 0; ch < 4; ++ch) {
-                int expectedTx = args.modeA ? (ch == 0 ? args.nocTx * args.numPEs : 0)
-                              : args.nocTx * pesPerChannel;
-                if (dramCh[ch]->completed() < static_cast<uint64_t>(expectedTx))
-                    allDone = false;
-            }
+        // Check completion: all DramPEs received expected transactions
+        int totalSent = args.nocTx * args.numPEs;
+        uint64_t totalCompleted = 0;
+        for (int ch = 0; ch < 4; ++ch) {
+            totalCompleted += drams[ch]->completed();
         }
-        if (allDone) break;
+
+        if (totalCompleted >= static_cast<uint64_t>(totalSent))
+            break;
+
         if ((sc_time_stamp() - t0) > timeout) {
-            cout << "\n[TIMEOUT] Simulation stopped at " << sc_time_stamp() << endl;
+            cout << "\n[TIMEOUT] at " << sc_time_stamp()
+                 << " (completed " << totalCompleted << "/" << totalSent << ")"
+                 << endl;
             break;
         }
     }
 
     // Drain pipeline
-    cout << "  [Drain] Waiting for pipeline to drain..." << endl;
+    cout << "  [Drain] Waiting for pipeline..." << endl;
     for (int drain = 0; drain < 200; ++drain) {
         sc_start(sc_time(100, SC_NS));
         bool allIdle = dramIf.getDramsys()->idle();
         bool noPending = true;
         for (int ch = 0; ch < 4; ++ch) {
-            if (dramCh[ch]->hasPending()) noPending = false;
+            if (drams[ch]->hasPending()) { noPending = false; break; }
         }
         if (allIdle && noPending) break;
     }
 
-    // Close VCD trace file (flush before final time)
     if (vcd_tf) {
         sc_close_vcd_trace_file(vcd_tf);
         cout << "  [VCD trace] Closed " << args.vcdFile << endl;
@@ -315,16 +283,16 @@ int sc_main(int argc, char** argv)
 
     double sim_time_ns = sc_time_stamp().to_seconds() * 1e9;
 
-    // ---- Report ----
-    cout << "\n============ NoC + DRAMSys Bandwidth Report ============" << endl;
+    // ---- Bandwidth Report ----
+    cout << "\n============ NoC (Noxim) + DRAMSys Bandwidth Report ============" << endl;
     cout << "  Mode: " << modeStr << endl;
     cout << "  Simulation time: " << fixed << setprecision(1)
          << sim_time_ns << " ns" << endl;
 
     uint64_t totalBytes = 0;
     for (int ch = 0; ch < 4; ++ch) {
-        uint64_t chBytes = dramCh[ch]->bytesTransferred();
-        uint64_t chTx    = dramCh[ch]->completed();
+        uint64_t chBytes = drams[ch]->bytesTransferred();
+        uint64_t chTx    = drams[ch]->completed();
         double chBW = (sim_time_ns > 0) ? (chBytes / sim_time_ns) : 0.0;
 
         cout << "  CH" << ch << ": " << chTx << " tx, "
@@ -333,28 +301,16 @@ int sc_main(int argc, char** argv)
         totalBytes += chBytes;
     }
 
-    if (args.experimentCompete || args.experimentOpposite) {
-        cout << "  [Xbar routed] ";
-        for (int out = 0; out < 4; ++out) {
-            cout << "out" << out << "=" << xbar.routedCount(out) << " ";
-        }
-        cout << endl;
-    }
-
     double totalBW = (sim_time_ns > 0) ? (totalBytes / sim_time_ns) : 0.0;
-
     cout << "  ----------------------------------------" << endl;
     cout << "  Total:      " << totalBytes << " bytes, "
          << fixed << setprecision(2) << totalBW << " GB/s" << endl;
-    cout << "  (Timing: DRAMSys AT cycle-accurate — scheduler tRCD/tCL/tRP/bank conflicts)" << endl;
     cout << "========================================================\n" << endl;
 
     // ---- Data consistency check ----
     {
         cout << "============ Data Consistency Check ============" << endl;
-
         int errors = 0;
-
         for (int ch = 0; ch < 4; ++ch) {
             uint32_t vpattern = 0xBEEF0000 | (ch << 8);
             uint64_t vaddr = static_cast<uint64_t>(ch) * 256;
@@ -375,20 +331,14 @@ int sc_main(int argc, char** argv)
 
             uint32_t readback = 0;
             bool ok = dramIf.verifyRead(ch, vaddr, &readback, sizeof(readback));
-
             if (ok && readback == vpattern) {
-                cout << "  CH" << ch << " addr=0x" << hex << vaddr
-                     << " pattern=0x" << vpattern
-                     << dec << " PASS" << endl;
+                cout << "  CH" << ch << " PASS" << endl;
             } else {
-                cout << "  CH" << ch << " addr=0x" << hex << vaddr
-                     << " wrote=0x" << vpattern
-                     << " read=0x" << readback
-                     << dec << " FAIL" << endl;
+                cout << "  CH" << ch << " FAIL (wrote=0x" << hex << vpattern
+                     << " read=0x" << readback << dec << ")" << endl;
                 errors++;
             }
         }
-
         cout << "  Errors: " << errors << endl;
         cout << "  Overall: " << (errors == 0 ? "PASS" : "FAIL") << endl;
         cout << "================================================\n" << endl;

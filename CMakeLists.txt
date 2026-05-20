@@ -116,9 +116,9 @@ set(DRAMSYS_UTILS_INC "${DRAMSYS_ROOT}/build/_deps/dramutils-src/include")
 file(GLOB NOXIM_DRAMSYS_SRCS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/NoximGlobals.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/DramInterface.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/pe.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/noc_xbar.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/dram_channel.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/traffic_pe.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/dram_pe.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/noc_mesh_wiring.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/sc_main.cpp"
 )
 
