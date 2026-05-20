@@ -1,7 +1,5 @@
 // ============================================================================
-// sc_main.cpp — NoC-Mesh (Noxim) + DRAMSys co-simulation top-level
-// ============================================================================
-// Architecture: 2x4 Noxim mesh with 4 TrafficPEs (row 0) + 4 DramPEs (row 1)
+// sc_main.cpp — NoC (Noxim 2x4 mesh) + DRAMSys co-simulation
 // ============================================================================
 #include <systemc.h>
 #include <tlm.h>
@@ -27,18 +25,16 @@ using namespace sc_core;
 // ---------------------------------------------------------------------------
 struct Args {
     string dramConfig;
-    int    nocTx        = 1000;
-    int    numPEs       = 4;
-    double nocRate      = 0.0;
-    double clockPeriod  = 1.0;
-    bool   modeA        = false;
-    bool   modeB        = false;
-    bool   interleave   = true;
-    bool   lpddr4       = false;
-    bool   is_read      = false;
-    int    maxCycles    = 100000;
-    bool   experimentCompete  = false;
-    bool   experimentOpposite = false;
+    int    nocTx         = 1000;
+    int    numPEs        = 4;
+    double nocRate       = 0.0;
+    double clockPeriod   = 1.0;
+    bool   modeA         = false;   // force all traffic to ch0
+    string addrMode      = "nointerleave";
+    int    blockSize     = 4096;
+    bool   lpddr4        = false;
+    bool   is_read       = false;
+    int    maxCycles     = 100000;
     string vcdFile;
 };
 
@@ -52,44 +48,25 @@ static Args parseArgs(int argc, char** argv)
         else if (arg == "--noc-pe" && i + 1 < argc) args.numPEs = atoi(argv[++i]);
         else if (arg == "--noc-rate" && i + 1 < argc) args.nocRate = atof(argv[++i]);
         else if (arg == "--noc-clock" && i + 1 < argc) args.clockPeriod = atof(argv[++i]);
-        else if (arg == "--noc-mode-a") { args.modeA = true; args.interleave = false; }
-        else if (arg == "--noc-mode-b") { args.modeB = true; args.interleave = false; }
-        else if (arg == "--noc-interleave") args.interleave = true;
-        else if (arg == "--vcd" && i + 1 < argc) args.vcdFile = argv[++i];
-        else if (arg == "--experiment-compete") {
-            args.experimentCompete = true;
-            args.interleave = false;
-            args.numPEs = 16;
-            args.nocTx = 2000;
-            args.clockPeriod = 0.2;
-            args.maxCycles = 500000;
-        }
-        else if (arg == "--experiment-opposite") {
-            args.experimentOpposite = true;
-            args.interleave = false;
-            args.numPEs = 16;
-            args.nocTx = 2000;
-            args.clockPeriod = 0.2;
-            args.maxCycles = 500000;
-        }
+        else if (arg == "--addr-mode" && i + 1 < argc) args.addrMode = argv[++i];
+        else if (arg == "--block-size" && i + 1 < argc) args.blockSize = atoi(argv[++i]);
+        else if (arg == "--noc-mode-a") args.modeA = true;
         else if (arg == "--lpddr4") args.lpddr4 = true;
         else if (arg == "--noc-read") args.is_read = true;
         else if (arg == "--max-cycles" && i + 1 < argc) args.maxCycles = atoi(argv[++i]);
+        else if (arg == "--vcd" && i + 1 < argc) args.vcdFile = argv[++i];
         else if (arg == "-h" || arg == "--help") {
-            cout << "Usage: " << argv[0] << " --dram-config <json> [opts]\n"
-                 << "  --noc-tx <N>       Transactions per PE (default 1000)\n"
-                 << "  --noc-pe <N>       Number of PEs (default 4)\n"
-                 << "  --noc-rate <ns>    Injection interval in ns (0=max)\n"
-                 << "  --noc-clock <ns>   NoC clock period (default 1.0ns)\n"
-                 << "  --noc-mode-a       All PEs -> single channel (1x BW)\n"
-                 << "  --noc-mode-b       Per-channel (4x BW, default)\n"
-                 << "  --lpddr4           LPDDR4 CH bits [31:30]\n"
-                 << "  --noc-read         READ transactions (default WRITE)\n"
-                 << "  --max-cycles <N>   Max cycles (default 100000)\n"
-                 << "  --vcd <file>       VCD trace\n"
-                 << "\n  Experiment modes:\n"
-                 << "  --experiment-compete   Interleave (16 PE, 4x4 crossbar route)\n"
-                 << "  --experiment-opposite  Channel-aware rotated stagger\n"
+            cout << "Usage: " << argv[0] << " [opts]\n"
+                 << "  --dram-config <path>  DRAMSys JSON config\n"
+                 << "  --noc-tx <N>          Transactions per PE (default 1000)\n"
+                 << "  --noc-clock <ns>      NoC clock period (default 1.0ns)\n"
+                 << "  --addr-mode <mode>    nointerleave | interleave\n"
+                 << "  --block-size <N>      Interleave block size in bytes (default 4096)\n"
+                 << "  --noc-mode-a          Force all traffic to channel 0\n"
+                 << "  --lpddr4              LPDDR4 CH bits [31:30]\n"
+                 << "  --noc-read            READ transactions (default WRITE)\n"
+                 << "  --max-cycles <N>      Max cycles (default 100000)\n"
+                 << "  --vcd <file>          VCD trace\n"
                  << endl;
             exit(0);
         }
@@ -104,33 +81,36 @@ int sc_main(int argc, char** argv)
 {
     Args args = parseArgs(argc, argv);
 
-    if (args.dramConfig.empty()) {
-        cerr << "ERROR: --dram-config required" << endl;
-        return 1;
-    }
+    // ---- Address mode setup ----
+    bool interleave = (args.addrMode == "interleave");
+    AddrDecoder::Mode addrMode = interleave ? AddrDecoder::INTERLEAVE
+                                            : AddrDecoder::NO_INTERLEAVE;
 
-    // ---- Banner ----
-    string modeStr;
-    if (args.experimentCompete) modeStr = "Experiment: Interleave (16 PE, 2x4 mesh)";
-    else if (args.experimentOpposite) modeStr = "Experiment: Channel-aware (16 PE, 2x4 mesh)";
-    else if (args.modeA) modeStr = "A (all->1ch, 1xBW, 2x4 mesh)";
-    else modeStr = "B (per-ch, 4xBW, 2x4 mesh)";
-
+    // For DDR4/LPDDR4, the channel bit position differs
     int chShift = args.lpddr4 ? 30 : 12;
 
+    // Default DRAMSys config (DDR4 4ch, CHANNEL_BIT at [12,13])
+    // DramPE translates the address to put channel at [12,13] before sending.
+    string dramConfig = args.dramConfig;
+    if (dramConfig.empty())
+        dramConfig = "../configs/dramsys_ddr4_4ch.json";
+
+    // ---- Banner ----
+    string modeStr = interleave ? "Interleave (block=" + to_string(args.blockSize) + "B)"
+                   : args.modeA  ? "No-interleave (all->ch0)"
+                   : "No-interleave (per-ch)";
+
     cout << "\n================================================" << endl;
-    cout << "  NoC (Noxim 2x4 mesh) + DRAMSys Co-Simulation" << endl;
+    cout << "  NoC (Noxim 2x4 mesh) + DRAMSys" << endl;
     cout << "  Mode: " << modeStr << endl;
     cout << "  PEs: " << args.numPEs << endl;
     cout << "  Transactions/PE: " << args.nocTx << endl;
     cout << "  Clock: " << args.clockPeriod << "ns" << endl;
-    cout << "  DRAM: " << (args.lpddr4 ? "LPDDR4" : "DDR4")
-         << " (CH bits at [" << chShift + 1 << ":" << chShift << "])" << endl;
-    if (!args.vcdFile.empty())
-        cout << "  VCD trace: " << args.vcdFile << endl;
+    cout << "  DRAM: " << (args.lpddr4 ? "LPDDR4" : "DDR4") << endl;
+    cout << "  Config: " << dramConfig << endl;
     cout << "================================================\n" << endl;
 
-    // ---- Configure Noxim GlobalParams ----
+    // ---- Noxim GlobalParams ----
     GlobalParams::topology = "MESH";
     GlobalParams::mesh_dim_x = 4;
     GlobalParams::mesh_dim_y = 2;
@@ -154,7 +134,7 @@ int sc_main(int argc, char** argv)
     GlobalParams::detailed = false;
 
     // ---- DRAMSys ----
-    DramIf::DramInterface dramIf("DramInterface", args.dramConfig, 0, chShift);
+    DramIf::DramInterface dramIf("DramInterface", dramConfig, 0, chShift);
     if (!dramIf.isConfigured()) {
         cerr << "ERROR: DramInterface init failed" << endl;
         return 1;
@@ -165,52 +145,39 @@ int sc_main(int argc, char** argv)
     sc_clock noc_clk("noc_clk", args.clockPeriod, SC_NS);
     sc_signal<bool> noc_rst("noc_rst");
 
-    // ---- Create TrafficPEs (row 0, one per DRAM channel) ----
-    int numDataPEs = 4;  // 4 PEs in a 2x4 mesh
+    // ---- Create TrafficPEs (row 0) ----
     TrafficPE* pes[4];
-    for (int pe = 0; pe < numDataPEs; ++pe) {
-        uint32_t base_addr;
-        int ch = pe % 4;
-        bool use_interleave = args.interleave || args.experimentCompete;
+    int data_len = args.lpddr4 ? 32 : 64;
 
-        if (args.modeA) {
-            base_addr = static_cast<uint32_t>(pe) * 0x10000;
-        } else if (use_interleave) {
-            base_addr = static_cast<uint32_t>(pe) * 0x10000;
+    for (int pe = 0; pe < 4; ++pe) {
+        // Flat base address per mode
+        uint64_t base;
+        if (interleave) {
+            // All PEs share address space, interleave naturally distributes
+            base = static_cast<uint64_t>(pe) * 0x10000;  // small offset for uniqueness
+        } else if (args.modeA) {
+            // All to channel 0: same base
+            base = 0;
         } else {
-            int subIdx = pe / 4;
-            base_addr = (static_cast<uint32_t>(ch) << chShift)
-                      | (static_cast<uint32_t>(subIdx) * 0x10000);
+            // No-interleave per-channel: each PE in its own 1GB region
+            base = static_cast<uint64_t>(pe) << 30;  // PE0=0, PE1=0x40000000, etc.
         }
 
-        // Experiment mode port sequences
-        int port_seq[4] = {-1, -1, -1, -1};
-        if (args.experimentOpposite) {
-            static const int opp_seq[4][4] = {
-                {0, 1, 2, 3}, {1, 2, 3, 0},
-                {2, 3, 0, 1}, {3, 0, 1, 2}
-            };
-            for (int d = 0; d < 4; ++d)
-                port_seq[d] = opp_seq[pe][d];
-        }
-
-        int data_len = args.lpddr4 ? 32 : 64;
-        int force_ch = args.modeA ? 0 : -1;
         auto* p = new TrafficPE(
             sc_module_name(("PE" + to_string(pe)).c_str()),
-            pe, args.nocTx, base_addr, args.nocRate, args.is_read,
-            data_len, use_interleave, chShift,
-            port_seq[0] >= 0 ? port_seq : nullptr,
-            force_ch);
+            pe, args.nocTx, base, args.nocRate, args.is_read, data_len);
 
-        // Enable one-shot if experiment mode
-        if (args.experimentCompete || args.experimentOpposite) {
-            p->enableOneShot(chShift, 64, 4, false);
+        // Configure address decoder
+        if (interleave) {
+            p->setAddrMode(AddrDecoder::INTERLEAVE, args.blockSize);
+        } else {
+            p->setAddrMode(AddrDecoder::NO_INTERLEAVE);
         }
+
         pes[pe] = p;
     }
 
-    // ---- Create DramPEs (row 1, one per channel) ----
+    // ---- Create DramPEs (row 1) ----
     DramPE* drams[4];
     for (int ch = 0; ch < 4; ++ch) {
         drams[ch] = new DramPE(
@@ -246,26 +213,23 @@ int sc_main(int argc, char** argv)
     while (true) {
         sc_start(poll_interval);
 
-        // Check completion: all DramPEs received expected transactions
         int totalSent = args.nocTx * args.numPEs;
         uint64_t totalCompleted = 0;
-        for (int ch = 0; ch < 4; ++ch) {
+        for (int ch = 0; ch < 4; ++ch)
             totalCompleted += drams[ch]->completed();
-        }
 
         if (totalCompleted >= static_cast<uint64_t>(totalSent))
             break;
 
         if ((sc_time_stamp() - t0) > timeout) {
             cout << "\n[TIMEOUT] at " << sc_time_stamp()
-                 << " (completed " << totalCompleted << "/" << totalSent << ")"
-                 << endl;
+                 << " (" << totalCompleted << "/" << totalSent << ")" << endl;
             break;
         }
     }
 
-    // Drain pipeline
-    cout << "  [Drain] Waiting for pipeline..." << endl;
+    // Drain
+    cout << "  [Drain] Waiting..." << endl;
     for (int drain = 0; drain < 200; ++drain) {
         sc_start(sc_time(100, SC_NS));
         bool allIdle = dramIf.getDramsys()->idle();
@@ -276,36 +240,30 @@ int sc_main(int argc, char** argv)
         if (allIdle && noPending) break;
     }
 
-    if (vcd_tf) {
-        sc_close_vcd_trace_file(vcd_tf);
-        cout << "  [VCD trace] Closed " << args.vcdFile << endl;
-    }
+    if (vcd_tf) sc_close_vcd_trace_file(vcd_tf);
 
     double sim_time_ns = sc_time_stamp().to_seconds() * 1e9;
 
     // ---- Bandwidth Report ----
-    cout << "\n============ NoC (Noxim) + DRAMSys Bandwidth Report ============" << endl;
+    cout << "\n============ Bandwidth Report ============" << endl;
     cout << "  Mode: " << modeStr << endl;
-    cout << "  Simulation time: " << fixed << setprecision(1)
-         << sim_time_ns << " ns" << endl;
+    cout << "  Time: " << fixed << setprecision(1) << sim_time_ns << " ns" << endl;
 
     uint64_t totalBytes = 0;
     for (int ch = 0; ch < 4; ++ch) {
         uint64_t chBytes = drams[ch]->bytesTransferred();
         uint64_t chTx    = drams[ch]->completed();
         double chBW = (sim_time_ns > 0) ? (chBytes / sim_time_ns) : 0.0;
-
         cout << "  CH" << ch << ": " << chTx << " tx, "
-             << chBytes << " bytes, "
-             << fixed << setprecision(2) << chBW << " GB/s" << endl;
+             << chBytes << " bytes, " << fixed << setprecision(2)
+             << chBW << " GB/s" << endl;
         totalBytes += chBytes;
     }
 
     double totalBW = (sim_time_ns > 0) ? (totalBytes / sim_time_ns) : 0.0;
-    cout << "  ----------------------------------------" << endl;
-    cout << "  Total:      " << totalBytes << " bytes, "
+    cout << "  Total: " << totalBytes << " bytes, "
          << fixed << setprecision(2) << totalBW << " GB/s" << endl;
-    cout << "========================================================\n" << endl;
+    cout << "==========================================\n" << endl;
 
     // ---- Data consistency check ----
     {
@@ -334,8 +292,8 @@ int sc_main(int argc, char** argv)
             if (ok && readback == vpattern) {
                 cout << "  CH" << ch << " PASS" << endl;
             } else {
-                cout << "  CH" << ch << " FAIL (wrote=0x" << hex << vpattern
-                     << " read=0x" << readback << dec << ")" << endl;
+                cout << "  CH" << ch << " FAIL (0x" << hex << vpattern
+                     << " vs 0x" << readback << dec << ")" << endl;
                 errors++;
             }
         }

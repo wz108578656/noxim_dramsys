@@ -1,0 +1,9 @@
+{
+    "simulation": {
+        "addressmapping": "memspec_ddr4_4ch_nointerleave/am_ddr4_4ch.json",
+        "mcconfig": "mcconfig_ddr4_tuned.json",
+        "memspec": "memspec_ddr4_4ch_nointerleave/memspec_ddr4_4ch.json",
+        "simconfig": "simconfig_example.json",
+        "simulationid": "ddr4-4ch-nointerleave"
+    }
+}
