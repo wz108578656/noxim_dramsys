@@ -16,17 +16,9 @@ run_test() {
 
 echo "==================== DDR4 Performance Test Suite ===================="
 
-# No-interleave WRITE
-run_test "No-interleave 4ch WRITE 1000tx/PE" \
-    --dram-config "$CDIR/dramsys_ddr4_4ch.json" --noc-tx 1000
-
-# No-interleave all->ch0 WRITE (1ch baseline)
-run_test "No-interleave 1ch WRITE 4000tx (all->ch0)" \
-    --dram-config "$CDIR/dramsys_ddr4_4ch.json" --noc-tx 1000 --noc-mode-a
-
-# No-interleave READ
-run_test "No-interleave 4ch READ 1000tx/PE" \
-    --dram-config "$CDIR/dramsys_ddr4_4ch.json" --noc-tx 1000 --noc-read
+# No-interleave 4ch READ
+run_test "No-interleave 4ch READ 16384tx/PE" \
+    --dram-config "$CDIR/dramsys_ddr4_4ch.json" --noc-tx 16384 --noc-read
 
 # Interleave READ
 run_test "Interleave 4KB READ 16384tx/PE" \

@@ -115,13 +115,11 @@ LD_LIBRARY_PATH=/data/zhuo.wang/DRAMSys/install/lib:/data/zhuo.wang/systemc302_v
 
 All tests: 0.2ns NoC clock, DDR4-1866, 4 channels, AT cycle-accurate DRAM.
 
-### No-interleave Mode (0.2ns clock)
+### No-interleave Mode (0.2ns clock, 4ch READ, 16384 tx/PE)
 
-| Test | Per-Ch BW | Total BW | Scale vs 1ch |
-|------|:---------:|:--------:|:------------:|
-| 1ch WRITE (all→ch0, 4000 tx) | 8.86 GB/s | 8.86 GB/s | 1.00× |
-| 4ch WRITE (per-ch, 1000 tx/PE) | 8.64 GB/s | 34.55 GB/s | 3.90× |
-| 4ch READ (per-ch, 1000 tx/PE) | 11.62 GB/s | 46.46 GB/s | 5.24× |
+| Per-Ch BW | Total BW | Channel Distribution |
+|:---------:|:--------:|:-------------------:|
+| 11.61 GB/s | 46.44 GB/s | 7276/7276/7276/7276 |
 
 ### Interleave Mode (READ, 16384 tx/PE = 1MB)
 
