@@ -22,6 +22,11 @@ run_test "DDR4 No-interleave 1ch WRITE 1000tx/PE" \
 run_test "DDR4 No-interleave READ 1000tx/PE" \
     --dram-config "$CDIR/dramsys_ddr4_4ch.json" --noc-tx 1000 --noc-read
 
+run_test "Interleave 4KB READ 16384tx/PE" \
+    --dram-config "$CDIR/dramsys_ddr4_4ch.json" --noc-tx 16384 --addr-mode interleave --block-size 4096 --noc-read
+run_test "Interleave 16KB READ 16384tx/PE" \
+    --dram-config "$CDIR/dramsys_ddr4_4ch.json" --noc-tx 16384 --addr-mode interleave --block-size 16384 --noc-read
+
 echo ""; echo "==================== LPDDR4 ===================="
 run_test "LPDDR4 No-interleave WRITE 500tx/PE" \
     --dram-config "$CDIR/dramsys_lpddr4_4ch.json" --noc-tx 500

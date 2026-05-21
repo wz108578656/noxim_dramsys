@@ -115,7 +115,7 @@ LD_LIBRARY_PATH=/data/zhuo.wang/DRAMSys/install/lib:/data/zhuo.wang/systemc302_v
 
 All tests: 0.2ns NoC clock, DDR4-1866, 4 channels, AT cycle-accurate DRAM.
 
-### No-interleave Mode
+### No-interleave Mode (0.2ns clock)
 
 | Test | Per-Ch BW | Total BW | Scale vs 1ch |
 |------|:---------:|:--------:|:------------:|
@@ -123,12 +123,14 @@ All tests: 0.2ns NoC clock, DDR4-1866, 4 channels, AT cycle-accurate DRAM.
 | 4ch WRITE (per-ch, 1000 tx/PE) | 8.64 GB/s | 34.55 GB/s | 3.90× |
 | 4ch READ (per-ch, 1000 tx/PE) | 11.62 GB/s | 46.46 GB/s | 5.24× |
 
-### Interleave Mode
+### Interleave Mode (READ, 16384 tx/PE = 1MB)
 
-| Test | Total BW | Channel Distribution |
-|------|:--------:|:-------------------:|
-| 4KB blocks WRITE (300 tx/PE) | 20.70 GB/s | 432/256/256/256 |
-| 256B blocks WRITE (300 tx/PE) | 24.69 GB/s | 304/304/304/288 |
+| Test | Total BW | Channel Distribution | Util |
+|------|:--------:|:-------------------:|:----:|
+| 4KB blocks READ (0.2ns) | 48.73 GB/s | 7688/7647/7657/7546 | ~82% |
+| 16KB blocks READ (0.2ns) | 44.53 GB/s | 7172/6973/6908/6853 | ~75% |
+
+Interleave 4KB distributes nearly evenly across all channels (near-uniform). 16KB blocks show slightly lower total BW due to longer sequential access to the same channel, increasing row-buffer conflict probability.
 
 ### Data Consistency
 

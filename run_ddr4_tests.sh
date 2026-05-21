@@ -28,12 +28,11 @@ run_test "No-interleave 1ch WRITE 4000tx (all->ch0)" \
 run_test "No-interleave 4ch READ 1000tx/PE" \
     --dram-config "$CDIR/dramsys_ddr4_4ch.json" --noc-tx 1000 --noc-read
 
-# Interleave 4KB WRITE
-run_test "Interleave 4KB WRITE 300tx/PE" \
-    --dram-config "$CDIR/dramsys_ddr4_4ch.json" --noc-tx 300 --addr-mode interleave --block-size 4096
+# Interleave READ
+run_test "Interleave 4KB READ 16384tx/PE" \
+    --dram-config "$CDIR/dramsys_ddr4_4ch.json" --noc-tx 16384 --addr-mode interleave --block-size 4096 --noc-read
 
-# Interleave 256B WRITE
-run_test "Interleave 256B WRITE 300tx/PE" \
-    --dram-config "$CDIR/dramsys_ddr4_4ch.json" --noc-tx 300 --addr-mode interleave --block-size 256
+run_test "Interleave 16KB READ 16384tx/PE" \
+    --dram-config "$CDIR/dramsys_ddr4_4ch.json" --noc-tx 16384 --addr-mode interleave --block-size 16384 --noc-read
 
 echo ""; echo "==================== All tests complete ===================="
