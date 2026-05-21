@@ -14,9 +14,13 @@ run_test() {
     echo "  --- PASS ---"
 }
 
+MC="--max-cycles 500000"
+
 echo "==================== DDR4 ===================="
 run_test "DDR4 No-interleave READ 16384tx/PE" \
-    --dram-config "$CDIR/dramsys_ddr4_4ch.json" --noc-tx 16384 --noc-read
+    --dram-config "$CDIR/dramsys_ddr4_4ch.json" $MC --noc-tx 16384 --noc-read
+run_test "DDR4 Interleave 4KB READ 16384tx/PE" \
+    --dram-config "$CDIR/dramsys_ddr4_4ch.json" $MC --noc-tx 16384 --addr-mode interleave --block-size 4096 --noc-read
 
 run_test "Interleave 4KB READ 16384tx/PE" \
     --dram-config "$CDIR/dramsys_ddr4_4ch.json" --noc-tx 16384 --addr-mode interleave --block-size 4096 --noc-read

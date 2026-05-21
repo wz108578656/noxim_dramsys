@@ -117,30 +117,30 @@ All tests: 0.2ns NoC clock, DDR4-1866, 4 channels, AT cycle-accurate DRAM.
 
 ### No-interleave Mode (0.2ns clock, 4ch READ, 16384 tx/PE)
 
-| Per-Ch BW | Total BW | Channel Distribution |
-|:---------:|:--------:|:-------------------:|
-| 11.61 GB/s | 46.44 GB/s | 7276/7276/7276/7276 |
+| Test | Per-Ch BW | Total BW | Channel Distribution |
+|:----|:---------:|:--------:|:-------------------:|
+| 4ch READ (per-ch) | 11.61 GB/s | 46.44 GB/s | 16384/16384/16384/16384 |
 
-### Interleave Mode (READ, 16384 tx/PE = 1MB)
+### Interleave Mode (0.2ns clock, READ, 16384 tx/PE = 1MB)
 
-| Test | Total BW | Channel Distribution | Util |
-|------|:--------:|:-------------------:|:----:|
-| 256B blocks READ (0.2ns) | 48.67 GB/s | 7627/7625/7625/7626 | ~82% |
-| 4KB blocks READ (0.2ns) | 48.73 GB/s | 7688/7647/7657/7546 | ~82% |
-| 16KB blocks READ (0.2ns) | 44.53 GB/s | 7172/6973/6908/6853 | ~75% |
+| Test | Per-Ch BW | Total BW | Channel Distribution |
+|:----|:---------:|:--------:|:-------------------:|
+| 256B blocks | 12.19 GB/s | 48.77 GB/s | 16384/16384/16384/16384 |
+| 4KB blocks | 11.94 GB/s | 47.77 GB/s | 16384/16384/16384/16384 |
+| 16KB blocks | 11.11 GB/s | 44.43 GB/s | 16384/16384/16384/16384 |
 
-256B and 4KB interleave achieve similar bandwidth (~48.7 GB/s) with near-uniform channel distribution. 16KB blocks show ~9% lower BW due to longer sequential access to the same channel, increasing row-buffer conflict probability.
+256B and 4KB blocks achieve near-perfect uniform distribution and highest bandwidth. 16KB blocks show ~7% lower BW due to longer sequential access to the same channel, increasing row-buffer conflict probability.
 
-### Single-PE Comparison: Interleave vs No-interleave
+### Interleave vs No-interleave: Single-Channel Contention
 
-Interleave enables a single PE to utilize all 4 channels in parallel:
+Without interleave, all PEs targeting the same channel are limited to one channel's bandwidth. Interleave spreads the traffic across all channels:
 
 | Config | Total BW | Channel Distribution | vs 1ch |
 |:------|:--------:|:-------------------:|:------:|
-| 1 PE, No-interleave (all→ch0) | 11.64 GB/s | 7292/0/0/0 | 1.00× |
-| 1 PE, Interleave 4KB | 48.73 GB/s | 7688/7647/7657/7546 | **4.19×** |
+| 4 PEs → ch0 (No-interleave, `--noc-mode-a`) | 11.65 GB/s | 21856/0/0/0 | 1.00× |
+| 4 PEs → 4ch (Interleave 4KB) | 47.77 GB/s | 16384/16384/16384/16384 | **4.10×** |
 
-Without interleave, a single PE is limited to one channel's bandwidth. Interleave spreads the PE's sequential address stream across all 4 channels at the configured block granularity, achieving near-linear scaling.
+When multiple PEs contend for the same channel, total bandwidth is limited to single-channel DRAM throughput. Interleave resolves this by distributing requests across all available channels.
 
 ### Data Consistency
 
