@@ -131,6 +131,17 @@ All tests: 0.2ns NoC clock, DDR4-1866, 4 channels, AT cycle-accurate DRAM.
 
 256B and 4KB interleave achieve similar bandwidth (~48.7 GB/s) with near-uniform channel distribution. 16KB blocks show ~9% lower BW due to longer sequential access to the same channel, increasing row-buffer conflict probability.
 
+### Single-PE Comparison: Interleave vs No-interleave
+
+Interleave enables a single PE to utilize all 4 channels in parallel:
+
+| Config | Total BW | Channel Distribution | vs 1ch |
+|:------|:--------:|:-------------------:|:------:|
+| 1 PE, No-interleave (all→ch0) | 11.64 GB/s | 7292/0/0/0 | 1.00× |
+| 1 PE, Interleave 4KB | 48.73 GB/s | 7688/7647/7657/7546 | **4.19×** |
+
+Without interleave, a single PE is limited to one channel's bandwidth. Interleave spreads the PE's sequential address stream across all 4 channels at the configured block granularity, achieving near-linear scaling.
+
 ### Data Consistency
 
 ```
