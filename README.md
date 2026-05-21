@@ -127,10 +127,11 @@ All tests: 0.2ns NoC clock, DDR4-1866, 4 channels, AT cycle-accurate DRAM.
 
 | Test | Total BW | Channel Distribution | Util |
 |------|:--------:|:-------------------:|:----:|
+| 256B blocks READ (0.2ns) | 48.67 GB/s | 7627/7625/7625/7626 | ~82% |
 | 4KB blocks READ (0.2ns) | 48.73 GB/s | 7688/7647/7657/7546 | ~82% |
 | 16KB blocks READ (0.2ns) | 44.53 GB/s | 7172/6973/6908/6853 | ~75% |
 
-Interleave 4KB distributes nearly evenly across all channels (near-uniform). 16KB blocks show slightly lower total BW due to longer sequential access to the same channel, increasing row-buffer conflict probability.
+256B and 4KB interleave achieve similar bandwidth (~48.7 GB/s) with near-uniform channel distribution. 16KB blocks show ~9% lower BW due to longer sequential access to the same channel, increasing row-buffer conflict probability.
 
 ### Data Consistency
 

@@ -32,6 +32,9 @@ run_test "No-interleave 4ch READ 1000tx/PE" \
 run_test "Interleave 4KB READ 16384tx/PE" \
     --dram-config "$CDIR/dramsys_ddr4_4ch.json" --noc-tx 16384 --addr-mode interleave --block-size 4096 --noc-read
 
+run_test "Interleave 256B READ 16384tx/PE" \
+    --dram-config "$CDIR/dramsys_ddr4_4ch.json" --noc-tx 16384 --addr-mode interleave --block-size 256 --noc-read
+
 run_test "Interleave 16KB READ 16384tx/PE" \
     --dram-config "$CDIR/dramsys_ddr4_4ch.json" --noc-tx 16384 --addr-mode interleave --block-size 16384 --noc-read
 
