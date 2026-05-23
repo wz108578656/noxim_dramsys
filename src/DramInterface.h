@@ -18,7 +18,7 @@ namespace DramIf
 class DramInterface : public sc_core::sc_module
 {
 public:
-    static constexpr int NUM_CHANNELS = 4;
+    static constexpr int NUM_CHANNELS = 8;
 
     DramInterface(sc_core::sc_module_name name,
                   const std::string& configJsonPath,
@@ -39,6 +39,10 @@ private:
     void b_transport_ch1(tlm::tlm_generic_payload&, sc_core::sc_time&);
     void b_transport_ch2(tlm::tlm_generic_payload&, sc_core::sc_time&);
     void b_transport_ch3(tlm::tlm_generic_payload&, sc_core::sc_time&);
+    void b_transport_ch4(tlm::tlm_generic_payload&, sc_core::sc_time&);
+    void b_transport_ch5(tlm::tlm_generic_payload&, sc_core::sc_time&);
+    void b_transport_ch6(tlm::tlm_generic_payload&, sc_core::sc_time&);
+    void b_transport_ch7(tlm::tlm_generic_payload&, sc_core::sc_time&);
     void forwardToDramsys(int ch, tlm::tlm_generic_payload&, sc_core::sc_time&);
 
     ::DRAMSys::DRAMSys* m_dramsys = nullptr;

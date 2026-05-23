@@ -32,12 +32,12 @@ NocMeshWiring::NocMeshWiring(sc_module_name name)
 // create() — instantiate routers, wire signals, bind PEs
 // ---------------------------------------------------------------------------
 void NocMeshWiring::create(
-    TrafficPE* pes[DIM_X], DramPE* drams[DIM_X],
+    TrafficPE* pes[DIM_X], DramPE* drams[DIM_X * DRAM_ROWS],
     sc_clock& clk, sc_signal<bool>& rst)
 {
     int dimX = DIM_X + 1; // 5
-    int dimY = DIM_Y + 1; // 3
-    int totalTiles = DIM_X * DIM_Y; // 8
+    int dimY = DIM_Y + 1; // 4
+    int totalTiles = DIM_X * DIM_Y; // 12
 
     // ---- 1. Allocate mesh signal matrices ----
     // Using Noxim-compatible NSWE pattern (size: dimX × dimY)
@@ -150,8 +150,9 @@ void NocMeshWiring::create(
                 pe->ack_rx(ls.ack_from_pe);
                 pe->buffer_full_status_rx(ls.bfs_from_pe);
             } else {
-                // Row 1: DramPE
-                DramPE* dp = drams[x];
+                // Rows 1-2: DramPE
+                int dram_idx = (y - 1) * DIM_X + x;  // row1:0-3, row2:4-7
+                DramPE* dp = drams[dram_idx];
                 dp->clock(clk);
                 dp->reset(rst);
 
@@ -226,8 +227,9 @@ void NocMeshWiring::create(
     for (int i = 0; i < totalTiles; i++)
         nop_dummy[i].write(tmp_nop);
 
-    cout << "  [NocMeshWiring] 2x4 mesh created: " << totalTiles
-         << " routers, " << DIM_X << " PEs, " << DIM_X << " DRAMs" << endl;
+    cout << "  [NocMeshWiring] 3x4 mesh created: " << totalTiles
+         << " routers, " << DIM_X << " PEs, "
+         << DIM_X * DRAM_ROWS << " DRAMs" << endl;
 }
 
 // ---------------------------------------------------------------------------

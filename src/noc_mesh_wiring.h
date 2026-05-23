@@ -32,8 +32,8 @@ struct NocMeshWiring : public sc_module
 {
     // Dimensions
     static const int DIM_X = 4;
-    static const int DIM_Y = 2;
-    static const int TOTAL = DIM_X * DIM_Y;  // 8
+    static const int DIM_Y = 3;        // rows: PE + DRAM row0 + DRAM row1
+    static const int TOTAL = DIM_X * DIM_Y;  // 12
 
     // Router matrix: r[x][y], id = y * DIM_X + x
     Router* r[DIM_X][DIM_Y];
@@ -72,8 +72,9 @@ struct NocMeshWiring : public sc_module
     NocMeshWiring(sc_module_name name);
     ~NocMeshWiring();
 
+    static const int DRAM_ROWS = DIM_Y - 1;  // rows 1 and 2 = 2 rows
     // Create the mesh: instantiate routers, wire signals, bind PEs
-    void create(TrafficPE* pes[DIM_X], DramPE* drams[DIM_X],
+    void create(TrafficPE* pes[DIM_X], DramPE* drams[DIM_X * DRAM_ROWS],
                 sc_clock& clk, sc_signal<bool>& rst);
 
     static int tileId(int x, int y) { return y * DIM_X + x; }

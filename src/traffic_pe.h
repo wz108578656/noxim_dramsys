@@ -23,7 +23,7 @@ struct AddrDecoder {
     void configure(Mode m, int block_size = 4096) {
         mode = m;
         if (mode == NO_INTERLEAVE) {
-            chShift = 30;  // channel at high bits [31:30]
+            chShift = 29;  // 3 bits at [31:29] for 8 channels
         } else {
             // chShift = log2(block_size)
             chShift = 0;
@@ -34,7 +34,7 @@ struct AddrDecoder {
     }
 
     int decode(uint64_t addr) const {
-        return static_cast<int>((addr >> chShift) & 0x3);
+        return static_cast<int>((addr >> chShift) & 0x7);
     }
 };
 

@@ -132,8 +132,8 @@ void DramPE::process()
         // Translate address for DRAMSys:
         //  1. Extract lower bits (valid row/bank/column from PE's sequential addressing)
         //  2. Write channel at bits [13:12] for DRAMSys CHANNEL_BIT decoding
-        uint64_t low = pkt.address & 0x3FFFFFFFULL;           // keep bits [29:0]
-        uint64_t dramsys_addr = (low & ~(0x3ULL << 12))       // clear ch bits
+        uint64_t low = pkt.address & 0x1FFFFFFFULL;           // keep bits [28:0] (29 bits for 8ch)
+        uint64_t dramsys_addr = (low & ~(0x7ULL << 12))       // clear ch bits (3bit for 8ch)
                               | (static_cast<uint64_t>(m_channel) << 12);
         trans->set_address(dramsys_addr);
         trans->set_data_length(pkt.data_len);

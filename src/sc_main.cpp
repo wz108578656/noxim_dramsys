@@ -93,7 +93,7 @@ int sc_main(int argc, char** argv)
     // DramPE translates the address to put channel at [12,13] before sending.
     string dramConfig = args.dramConfig;
     if (dramConfig.empty())
-        dramConfig = "../configs/dramsys_ddr4_4ch.json";
+        dramConfig = "../configs/dramsys_ddr4_8ch.json";
 
     // ---- Banner ----
     string modeStr = interleave ? "Interleave (block=" + to_string(args.blockSize) + "B)"
@@ -101,7 +101,7 @@ int sc_main(int argc, char** argv)
                    : "No-interleave (per-ch)";
 
     cout << "\n================================================" << endl;
-    cout << "  NoC (Noxim 2x4 mesh) + DRAMSys" << endl;
+    cout << "  NoC (Noxim 3x4 mesh) + DRAMSys" << endl;
     cout << "  Mode: " << modeStr << endl;
     cout << "  PEs: " << args.numPEs << endl;
     cout << "  Transactions/PE: " << args.nocTx << endl;
@@ -113,7 +113,7 @@ int sc_main(int argc, char** argv)
     // ---- Noxim GlobalParams ----
     GlobalParams::topology = "MESH";
     GlobalParams::mesh_dim_x = 4;
-    GlobalParams::mesh_dim_y = 2;
+    GlobalParams::mesh_dim_y = 3;      // 3 rows: PE + 2 DRAM rows
     GlobalParams::buffer_depth = 8;
     GlobalParams::flit_size = 32;
     GlobalParams::n_virtual_channels = 1;
@@ -139,7 +139,7 @@ int sc_main(int argc, char** argv)
         cerr << "ERROR: DramInterface init failed" << endl;
         return 1;
     }
-    dramIf.getDramsys()->setThreadCount(4);
+    dramIf.getDramsys()->setThreadCount(8);
 
     // ---- Clock & Reset ----
     sc_clock noc_clk("noc_clk", args.clockPeriod, SC_NS);
@@ -159,8 +159,8 @@ int sc_main(int argc, char** argv)
             // All to channel 0: same base
             base = 0;
         } else {
-            // No-interleave per-channel: each PE in its own 1GB region
-            base = static_cast<uint64_t>(pe) << 30;  // PE0=0, PE1=0x40000000, etc.
+            // No-interleave per-channel: each PE in its own 512MB region (3bit at [31:29])
+            base = static_cast<uint64_t>(pe) << 29;  // PE0=0, PE1=0x20000000, PE2=0x40000000, PE3=0x60000000
         }
 
         auto* p = new TrafficPE(
@@ -177,9 +177,10 @@ int sc_main(int argc, char** argv)
         pes[pe] = p;
     }
 
-    // ---- Create DramPEs (row 1) ----
-    DramPE* drams[4];
-    for (int ch = 0; ch < 4; ++ch) {
+    // ---- Create DramPEs (rows 1-2, ch0..7) ----
+    static const int NUM_CH = 8;
+    DramPE* drams[NUM_CH] = {};
+    for (int ch = 0; ch < NUM_CH; ++ch) {
         drams[ch] = new DramPE(
             sc_module_name(("DramPE" + to_string(ch)).c_str()), ch);
         auto& sock = dramIf.getDramsys()->getArbiterTargetSocket();
@@ -215,7 +216,7 @@ int sc_main(int argc, char** argv)
 
         int totalSent = args.nocTx * args.numPEs;
         uint64_t totalCompleted = 0;
-        for (int ch = 0; ch < 4; ++ch)
+        for (int ch = 0; ch < NUM_CH; ++ch)
             totalCompleted += drams[ch]->completed();
 
         if (totalCompleted >= static_cast<uint64_t>(totalSent))
@@ -234,7 +235,7 @@ int sc_main(int argc, char** argv)
         sc_start(sc_time(100, SC_NS));
         bool allIdle = dramIf.getDramsys()->idle();
         bool noPending = true;
-        for (int ch = 0; ch < 4; ++ch) {
+        for (int ch = 0; ch < NUM_CH; ++ch) {
             if (drams[ch]->hasPending()) { noPending = false; break; }
         }
         if (allIdle && noPending) break;
@@ -250,7 +251,7 @@ int sc_main(int argc, char** argv)
     cout << "  Time: " << fixed << setprecision(1) << sim_time_ns << " ns" << endl;
 
     uint64_t totalBytes = 0;
-    for (int ch = 0; ch < 4; ++ch) {
+    for (int ch = 0; ch < NUM_CH; ++ch) {
         uint64_t chBytes = drams[ch]->bytesTransferred();
         uint64_t chTx    = drams[ch]->completed();
         double chBW = (sim_time_ns > 0) ? (chBytes / sim_time_ns) : 0.0;
@@ -269,7 +270,7 @@ int sc_main(int argc, char** argv)
     {
         cout << "============ Data Consistency Check ============" << endl;
         int errors = 0;
-        for (int ch = 0; ch < 4; ++ch) {
+        for (int ch = 0; ch < NUM_CH; ++ch) {
             uint32_t vpattern = 0xBEEF0000 | (ch << 8);
             uint64_t vaddr = static_cast<uint64_t>(ch) * 256;
 
