@@ -5,16 +5,20 @@ NoC (Noxim 2×4 mesh) + DRAMSys cycle-accurate co-simulation for multi-channel D
 ## Architecture
 
 ```
-   TrafficPE[0]   TrafficPE[1]   TrafficPE[2]   TrafficPE[3]    ← ABP traffic generators
-      │               │               │               │
-   Router[0,0] ── Router[1,0] ── Router[2,0] ── Router[3,0]  ← Noxim XY mesh (row 0)
-      │               │               │               │
-   Router[0,1] ── Router[1,1] ── Router[2,1] ── Router[3,1]  ← Noxim XY mesh (row 1)
-      │               │               │               │
-   DramPE[ch0]    DramPE[ch1]    DramPE[ch2]    DramPE[ch3]   ← ABP→TLM bridge
-      │               │               │               │
-      └───────────────┴───────────────┴───────────────┘
-                     DRAMSys (4ch Arbiter, DDR4/LPDDR4)
+   TrafficPE[0]  TrafficPE[1]  TrafficPE[2]  TrafficPE[3]   ← ABP (row 0)
+      │              │              │              │
+   Router[0,0] ── Router[1,0] ── Router[2,0] ── Router[3,0] ← Noxim XY mesh
+      │              │              │              │
+   Router[0,1] ── Router[1,1] ── Router[2,1] ── Router[3,1] ← DRAM row 1
+      │              │              │              │
+   DramPE[ch0]   DramPE[ch1]   DramPE[ch2]   DramPE[ch3]
+      │              │              │              │
+   Router[0,2] ── Router[1,2] ── Router[2,2] ── Router[3,2] ← DRAM row 2
+      │              │              │              │
+   DramPE[ch4]   DramPE[ch5]   DramPE[ch6]   DramPE[ch7]
+      │              │              │              │
+      └──────────────┴──────────────┴──────────────┘
+                    DRAMSys (8ch Arbiter, DDR4)
 ```
 
 | Component | File | Description |
@@ -75,25 +79,19 @@ cd build && cmake .. && make -j$(nproc)
 ### Run
 
 ```bash
-# No-interleave, per-channel WRITE (1000 tx/PE)
+# No-interleave, per-channel READ (1MB/PE)
 SC_SIGNAL_WRITE_CHECK=DISABLE \
 LD_LIBRARY_PATH=/data/zhuo.wang/DRAMSys/install/lib:/data/zhuo.wang/systemc302_v2_clean/lib-linux64 \
-./noxim_dramsys --noc-tx 1000
+./noxim_dramsys --noc-tx 16384 --noc-read
 
 # No-interleave, all to channel 0 (1× BW baseline)
-./noxim_dramsys --noc-tx 1000 --noc-mode-a
+./noxim_dramsys --noc-tx 16384 --noc-read --noc-mode-a
 
-# No-interleave, READ
-./noxim_dramsys --noc-tx 1000 --noc-read
+# Interleave, 256B blocks (full 8ch utilization)
+./noxim_dramsys --noc-tx 16384 --addr-mode interleave --block-size 256 --noc-read --max-cycles 500000
 
-# Interleave, 4KB blocks
-./noxim_dramsys --noc-tx 300 --addr-mode interleave --block-size 4096
-
-# Interleave, 256B blocks
-./noxim_dramsys --noc-tx 300 --addr-mode interleave --block-size 256
-
-# Custom clock (0.2ns for higher injection bandwidth)
-./noxim_dramsys --noc-tx 1000 --noc-clock 0.2
+# Custom clock (0.2ns for faster injection)
+./noxim_dramsys --noc-tx 16384 --noc-read --noc-clock 0.2 --max-cycles 500000
 ```
 
 ### CLI Options
@@ -113,45 +111,46 @@ LD_LIBRARY_PATH=/data/zhuo.wang/DRAMSys/install/lib:/data/zhuo.wang/systemc302_v
 
 ## Performance Results
 
-All tests: 0.2ns NoC clock, DDR4-1866, 4 channels, AT cycle-accurate DRAM.
+All tests: 0.2ns NoC clock, DDR4-1866, 8 channels (3×4 mesh), AT cycle-accurate DRAM, READ, 16384 tx/PE (1MB).
 
-### No-interleave Mode (0.2ns clock, 4ch READ, 16384 tx/PE)
+### No-interleave Mode
 
-| Test | Per-Ch BW | Total BW | Channel Distribution |
-|:----|:---------:|:--------:|:-------------------:|
-| 4ch READ (per-ch) | 11.61 GB/s | 46.44 GB/s | 16384/16384/16384/16384 |
+4 PEs each target a dedicated channel (ch0-3). Channels 4-7 unused in this mode.
 
-### Interleave Mode (0.2ns clock, READ, 16384 tx/PE = 1MB)
+| Test | Total BW | Active Channels | Per-Ch BW |
+|:----|:--------:|:---------------:|:---------:|
+| 4 PEs → 4ch | 46.19 GB/s | ch0-3 | 11.55 GB/s |
 
-| Test | Per-Ch BW | Total BW | Channel Distribution |
-|:----|:---------:|:--------:|:-------------------:|
-| 256B blocks | 12.19 GB/s | 48.77 GB/s | 16384/16384/16384/16384 |
-| 4KB blocks | 11.94 GB/s | 47.77 GB/s | 16384/16384/16384/16384 |
-| 16KB blocks | 11.11 GB/s | 44.43 GB/s | 16384/16384/16384/16384 |
+### Interleave Mode
 
-256B and 4KB blocks achieve near-perfect uniform distribution and highest bandwidth. 16KB blocks show ~7% lower BW due to longer sequential access to the same channel, increasing row-buffer conflict probability.
+Traffic spreads evenly across all 8 channels. All distributions perfectly uniform (8192/ch).
 
-### Interleave vs No-interleave: Single-Channel Contention
+| Test | Total BW | Per-Ch BW | vs No-interleave |
+|:----|:--------:|:---------:|:----------------:|
+| 256B blocks | **52.29 GB/s** | 6.54 GB/s | +13% |
+| 4KB blocks | 43.96 GB/s | 5.50 GB/s | −5% |
+| 16KB blocks | 35.10 GB/s | 4.39 GB/s | −24% |
 
-Without interleave, all PEs targeting the same channel are limited to one channel's bandwidth. Interleave spreads the traffic across all channels:
+256B interleave achieves the highest total BW by maximizing bank-level parallelism — frequent channel switching keeps DRAM row buffers open and exploits all 8 channels. 16KB blocks drop 24% as longer sequential access to the same channel increases row-buffer conflicts.
 
-| Config | Total BW | Channel Distribution | vs 1ch |
-|:------|:--------:|:-------------------:|:------:|
-| 4 PEs → ch0 (No-interleave, `--noc-mode-a`) | 11.65 GB/s | 21856/0/0/0 | 1.00× |
-| 4 PEs → 4ch (Interleave 4KB) | 47.77 GB/s | 16384/16384/16384/16384 | **4.10×** |
+### Single-Channel Contention
 
-When multiple PEs contend for the same channel, total bandwidth is limited to single-channel DRAM throughput. Interleave resolves this by distributing requests across all available channels.
+Without interleave, all PEs to the same channel are limited to one channel's bandwidth:
+
+| Config | Total BW | Channel Distribution | Scale |
+|:------|:--------:|:-------------------:|:-----:|
+| 4 PEs → ch0 (`--noc-mode-a`) | 11.56 GB/s | 65536/0/0/0/0/0/0/0 | 1.00× |
+| 4 PEs → 8ch (Interleave 256B) | 52.29 GB/s | 8192 each channel | **4.52×** |
 
 ### Data Consistency
 
 ```
-CH0 PASS    CH1 PASS    CH2 PASS    CH3 PASS
-Overall: PASS  (verified every test run)
+CH0..7 ALL PASS  (verified every test run)
 ```
 
 ## Noxim Integration
 
-The NoC uses Noxim's cycle-accurate Router model in a 2×4 mesh configuration:
+The NoC uses Noxim's cycle-accurate Router model in a **3×4 mesh** configuration:
 
 - **XY routing** with RANDOM selection
 - **ABP (Alternating Bit Protocol)** flit-level handshake
@@ -159,7 +158,7 @@ The NoC uses Noxim's cycle-accurate Router model in a 2×4 mesh configuration:
 - **18 flits per transaction** (1 HEAD + 16 data × 4B + 1 TAIL)
 - **Per-hop backpressure** via ABP ack protocol
 
-NoC latency includes multi-hop routing (1-4 hops in 2×4 mesh), router pipeline (reservation + forwarding per cycle), and link contention.
+NoC latency includes multi-hop routing (1-6 hops in 3×4 mesh), router pipeline (reservation + forwarding per cycle), and link contention. A DRAM access from a PE to the farthest channel (ch7) traverses: PE → Router(x,0) → SOUTH → Router(x,1) → SOUTH → Router(x,2) → LOCAL → DramPE.
 
 ## Dependencies
 

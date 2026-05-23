@@ -3,6 +3,7 @@
 set -e
 BIN="./noxim_dramsys"
 CDIR="../configs"
+MC="--max-cycles 500000"
 export SC_SIGNAL_WRITE_CHECK=DISABLE
 
 run_test() {
@@ -16,24 +17,22 @@ run_test() {
 
 echo "==================== DDR4 Performance Test Suite ===================="
 
-MC="--max-cycles 500000"  # ensure all tx complete
-
-# No-interleave 4ch READ
-run_test "No-interleave 4ch READ 16384tx/PE" \
-    --dram-config "$CDIR/dramsys_ddr4_4ch.json" $MC --noc-tx 16384 --noc-read
+# No-interleave READ
+run_test "No-interleave READ 16384tx/PE" \
+    --dram-config "$CDIR/dramsys_ddr4_8ch.json" $MC --noc-tx 16384 --noc-read
 
 # Interleave READ
 run_test "Interleave 256B READ 16384tx/PE" \
-    --dram-config "$CDIR/dramsys_ddr4_4ch.json" $MC --noc-tx 16384 --addr-mode interleave --block-size 256 --noc-read
+    --dram-config "$CDIR/dramsys_ddr4_8ch.json" $MC --noc-tx 16384 --addr-mode interleave --block-size 256 --noc-read
 
 run_test "Interleave 4KB READ 16384tx/PE" \
-    --dram-config "$CDIR/dramsys_ddr4_4ch.json" $MC --noc-tx 16384 --addr-mode interleave --block-size 4096 --noc-read
+    --dram-config "$CDIR/dramsys_ddr4_8ch.json" $MC --noc-tx 16384 --addr-mode interleave --block-size 4096 --noc-read
 
 run_test "Interleave 16KB READ 16384tx/PE" \
-    --dram-config "$CDIR/dramsys_ddr4_4ch.json" $MC --noc-tx 16384 --addr-mode interleave --block-size 16384 --noc-read
+    --dram-config "$CDIR/dramsys_ddr4_8ch.json" $MC --noc-tx 16384 --addr-mode interleave --block-size 16384 --noc-read
 
-# Interleave vs single-channel comparison
-run_test "No-interleave 4PE→ch0 READ 16384tx/PE" \
-    --dram-config "$CDIR/dramsys_ddr4_4ch.json" $MC --noc-tx 16384 --noc-read --noc-mode-a
+# Single-channel comparison
+run_test "4PE→ch0 READ 16384tx/PE" \
+    --dram-config "$CDIR/dramsys_ddr4_8ch.json" $MC --noc-tx 16384 --noc-read --noc-mode-a
 
 echo ""; echo "==================== All tests complete ===================="
