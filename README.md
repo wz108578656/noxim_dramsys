@@ -113,32 +113,34 @@ LD_LIBRARY_PATH=/data/zhuo.wang/DRAMSys/install/lib:/data/zhuo.wang/systemc302_v
 
 All tests: 0.2ns NoC clock, DDR4-1866, 8 channels (3×4 mesh), AT cycle-accurate DRAM, READ, **128B transactions** (34 flits/packet), 1MB/PE.
 
+All tests: READ, 128B transactions, DDR4-1866 ×64 (14.9 GB/s/ch DRAM bus max).
+Bandwidth reported as TLM-level GB/s followed by **DRAM bus utilization %** in parentheses.
+
 ### No-interleave Mode
 
 4 PEs each target a dedicated channel (ch0-3). Channels 4-7 unused.
 
-| Test | Total BW | Per-Ch BW | Tx Count |
-|:----|:--------:|:---------:|:--------:|
-| 4 PEs → 4ch | **92.98 GB/s** | 23.24 GB/s | 8192/ch |
+| Test | Total | Per-Ch | Util |
+|:----|:-----:|:------:|:----:|
+| 4 PEs → 4ch | 93.0 GB/s | 23.2 GB/s | **78%** |
 
-### Interleave Mode
+### Interleave Mode (256B blocks)
 
 Traffic spreads perfectly uniform across all 8 channels.
 
-| Test | Total BW | Per-Ch BW | vs 64B |
-|:----|:--------:|:---------:|:------:|
-| 256B blocks | **91.76 GB/s** | 11.47 GB/s | +75% |
+| Test | Total | Per-Ch | Util |
+|:----|:-----:|:------:|:----:|
+| 4 PEs → 8ch | 91.8 GB/s | 11.5 GB/s | **38.5%** |
 
-128B transactions nearly double the bandwidth vs 64B by amortizing packet overhead (HEAD+TAIL drops from 11% to 5.8%) and improving DRAM row-buffer efficiency (each activate delivers 2× data).
+8-channel interleave shows lower per-channel utilization (38.5% vs 78%) because 4 PEs cannot saturate 8 channels. Each channel receives half the traffic (4096 tx vs 8192 tx), and the NoC (3×4 mesh) adds routing overhead for the extra row of DRAM tiles.
 
 ### Single-Channel Contention
 
-All PEs to the same channel are limited to one channel's bandwidth:
+All 4 PEs to the same channel:
 
-| Config | Total BW | Distribution | Scale |
-|:------|:--------:|:------------:|:-----:|
-| 4 PEs → ch0 (`--noc-mode-a`) | 11.56 GB/s | 65536/0/0/... | 1.00× |
-| 4 PEs → 8ch (Interleave 256B) | 91.76 GB/s | 4096 each × 8 | **7.93×** |
+| Config | Total | Util | Distribution |
+|:------|:-----:|:----:|:------------:|
+| 4 PEs → ch0 (`--noc-mode-a`) | 23.2 GB/s | **78%** | 32768/0/0/... |
 
 ### Data Consistency
 
