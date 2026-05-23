@@ -66,14 +66,14 @@ void TrafficPE::run()
 
         // Data pattern for verification
         uint32_t pattern = 0xDEAD0000 | (m_pe_id << 12) | (i & 0xFFF);
-        for (int w = 0; w < 16; ++w)
+        for (int w = 0; w < 32; ++w)
             txp.data[w] = pattern + w;
 
         txp.pkt.src_id  = m_pe_id;
         txp.pkt.dst_id  = dst_tile;
         txp.pkt.vc_id   = 0;
         txp.pkt.timestamp = sc_time_stamp().to_seconds();
-        txp.pkt.size    = m_is_read ? 2 : 18;
+        txp.pkt.size    = m_is_read ? 2 : (2 + m_data_len / 4);
         txp.pkt.flit_left = txp.pkt.size;
 
         m_tx_queue.push(txp);
@@ -115,7 +115,7 @@ Flit TrafficPE::nextFlit(TxPacket& txp, int seq)
         f.hub_relay_node = static_cast<int>((txp.address >> 32) & 0xFFFF);
     } else if (f.flit_type == FLIT_TYPE_BODY) {
         int data_idx = seq - 1;
-        f.payload.data = (data_idx >= 0 && data_idx < 16) ? txp.data[data_idx] : 0;
+        f.payload.data = (data_idx >= 0 && data_idx < 32) ? txp.data[data_idx] : 0;
         f.hub_relay_node = NOT_VALID;
     } else {
         f.payload.data = static_cast<uint32_t>(txp.tag);

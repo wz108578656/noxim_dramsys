@@ -121,8 +121,8 @@ int sc_main(int argc, char** argv)
     GlobalParams::selection_strategy = "RANDOM";
     GlobalParams::clock_period_ps = static_cast<int>(args.clockPeriod * 1000);
     GlobalParams::use_winoc = false;
-    GlobalParams::min_packet_size = 18;
-    GlobalParams::max_packet_size = 18;
+    GlobalParams::min_packet_size = 34;  // 128B: HEAD+32data+TAIL
+    GlobalParams::max_packet_size = 34;
     GlobalParams::packet_injection_rate = 1.0;
     GlobalParams::probability_of_retransmission = 0.0;
     GlobalParams::simulation_time = args.maxCycles;
@@ -147,7 +147,7 @@ int sc_main(int argc, char** argv)
 
     // ---- Create TrafficPEs (row 0) ----
     TrafficPE* pes[4];
-    int data_len = args.lpddr4 ? 32 : 64;
+    int data_len = 128;
 
     for (int pe = 0; pe < 4; ++pe) {
         // Flat base address per mode

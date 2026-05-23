@@ -65,7 +65,7 @@ void DramPE::rxProcess()
 
     if (f.flit_type == FLIT_TYPE_HEAD) {
         m_rx_len = f.sequence_length;
-        if (m_rx_len > 18) m_rx_len = 18;
+        if (m_rx_len > 34) m_rx_len = 34;
         m_rx_seq = 0;
     }
 
@@ -81,12 +81,12 @@ void DramPE::rxProcess()
             pkt.address |= (static_cast<uint64_t>(head.hub_relay_node) << 32);
         pkt.is_write = (head.vc_id & 0x80) != 0;
         pkt.tag      = (head.vc_id & 0x3F);
-        pkt.data_len = 64;
+        pkt.data_len = 128;
         memset(pkt.data, 0, sizeof(pkt.data));
 
         // Extract data from BODY flits
         if (pkt.is_write) {
-            for (int i = 1; i < m_rx_seq && i <= 16; ++i)
+            for (int i = 1; i < m_rx_seq && i <= 32; ++i)
                 pkt.data[i - 1] = m_rx_buf[i].payload.data;
         }
 
@@ -121,9 +121,9 @@ void DramPE::process()
         auto* trans = new tlm_generic_payload();
         trans->set_mm(m_mm);
 
-        unsigned char* data_ptr = new unsigned char[64]();
+        unsigned char* data_ptr = new unsigned char[128]();
         if (pkt.is_write) {
-            memcpy(data_ptr, pkt.data, 64);
+            memcpy(data_ptr, pkt.data, 128);
             trans->set_command(TLM_WRITE_COMMAND);
         } else {
             trans->set_command(TLM_READ_COMMAND);

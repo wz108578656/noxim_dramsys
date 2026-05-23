@@ -39,15 +39,15 @@ struct AddrDecoder {
 };
 
 // ---------------------------------------------------------------------------
-// Flit payload encoding (same as before)
+// Flit payload encoding (128-byte transaction, 34 flits/packet)
 //   Flit 0 (HEAD):  payload=addr[31:0], hub_relay_node=addr[47:32]
-//   Flit 1-16 (BODY): payload=data[i] (4 bytes)
-//   Flit 17 (TAIL): payload=tag
+//   Flit 1-32 (BODY): payload=data[i] (4 bytes)
+//   Flit 33 (TAIL): payload=tag
 // ---------------------------------------------------------------------------
 struct TxPacket {
     Packet   pkt;
     uint64_t address;
-    uint32_t data[16];
+    uint32_t data[32];  // 128 bytes
     int      tag;
 };
 
@@ -105,8 +105,8 @@ private:
     bool m_current_level_tx;
     bool m_current_level_rx;
 
-    // Read-response reassembly
-    Flit m_rx_pkt_buf[18];
+    // Read-response reassembly (max 34 flits for 128B)
+    Flit m_rx_pkt_buf[34];
     int  m_rx_pkt_len;
     int  m_rx_pkt_seq;
 };
