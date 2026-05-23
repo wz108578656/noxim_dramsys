@@ -67,7 +67,7 @@ private:
 
     int  m_channel;
     int  m_tag;
-    int  m_maxInFlight = 128;
+    int  m_maxInFlight = 256;
     uint64_t m_completed;
     uint64_t m_bytes;
 

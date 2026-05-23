@@ -114,33 +114,35 @@ LD_LIBRARY_PATH=/data/zhuo.wang/DRAMSys/install/lib:/data/zhuo.wang/systemc302_v
 All tests: 0.2ns NoC clock, DDR4-1866, 8 channels (3×4 mesh), AT cycle-accurate DRAM, READ, **128B transactions** (34 flits/packet), 1MB/PE.
 
 All tests: READ, 128B transactions, DDR4-1866 ×64 (14.9 GB/s/ch DRAM bus max).
-Bandwidth reported as TLM-level GB/s followed by **DRAM bus utilization %** in parentheses.
+Bandwidth reported as TLM-level GB/s followed by **DRAM bus utilization %**.
 
-### No-interleave Mode
+### No-interleave Mode (0.2ns/0.1ns)
 
 4 PEs each target a dedicated channel (ch0-3). Channels 4-7 unused.
 
-| Test | Total | Per-Ch | Util |
-|:----|:-----:|:------:|:----:|
-| 4 PEs → 4ch | 93.0 GB/s | 23.2 GB/s | **78%** |
+| Test | Clock | Total | Per-Ch | Util |
+|:----|:-----:|:-----:|:------:|:----:|
+| 4 PEs → 4ch | 0.2ns | 93.0 GB/s | 23.2 GB/s | **78%** |
+| 4 PEs → 4ch | 0.1ns | 93.0 GB/s | 23.2 GB/s | **78%** |
 
-### Interleave Mode (256B blocks)
+No-interleave is DRAM-bound; NoC frequency has no effect.
 
-Traffic spreads perfectly uniform across all 8 channels.
+### Interleave Mode (256B blocks, 8ch)
 
-| Test | Total | Per-Ch | Util |
-|:----|:-----:|:------:|:----:|
-| 4 PEs → 8ch | 91.8 GB/s | 11.5 GB/s | **38.5%** |
+| Test | Clock | maxInFlight | Total | Per-Ch | Util |
+|:----|:-----:|:-----------:|:-----:|:------:|:----:|
+| 4 PEs → 8ch | 0.2ns | 128 | 91.8 GB/s | 11.5 GB/s | **38.5%** |
+| 4 PEs → 8ch | **0.1ns** | **256** | **225.4 GB/s** | 28.2 GB/s | **94.5%** |
 
-8-channel interleave shows lower per-channel utilization (38.5% vs 78%) because 4 PEs cannot saturate 8 channels. Each channel receives half the traffic (4096 tx vs 8192 tx), and the NoC (3×4 mesh) adds routing overhead for the extra row of DRAM tiles.
+NoC frequency was the bottleneck. At 0.2ns, each PE injects 1 flit/cycle, but interleave to 8 channels leaves only ~0.5 flit/cycle per channel. Doubling NoC frequency (0.1ns) and increasing DramPE pipeline depth (maxInFlight=256) allows each channel to receive enough flits to fully saturate the DRAM.
 
 ### Single-Channel Contention
 
-All 4 PEs to the same channel:
+All 4 PEs to the same channel (DRAM-limited regardless of NoC frequency):
 
-| Config | Total | Util | Distribution |
-|:------|:-----:|:----:|:------------:|
-| 4 PEs → ch0 (`--noc-mode-a`) | 23.2 GB/s | **78%** | 32768/0/0/... |
+| Config | Total | Util |
+|:------|:-----:|:----:|
+| 4 PEs → ch0 | 23.4 GB/s | **78%** |
 
 ### Data Consistency
 
