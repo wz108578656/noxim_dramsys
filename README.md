@@ -111,36 +111,34 @@ LD_LIBRARY_PATH=/data/zhuo.wang/DRAMSys/install/lib:/data/zhuo.wang/systemc302_v
 
 ## Performance Results
 
-All tests: 0.2ns NoC clock, DDR4-1866, 8 channels (3×4 mesh), AT cycle-accurate DRAM, READ, 16384 tx/PE (1MB).
+All tests: 0.2ns NoC clock, DDR4-1866, 8 channels (3×4 mesh), AT cycle-accurate DRAM, READ, **128B transactions** (34 flits/packet), 1MB/PE.
 
 ### No-interleave Mode
 
-4 PEs each target a dedicated channel (ch0-3). Channels 4-7 unused in this mode.
+4 PEs each target a dedicated channel (ch0-3). Channels 4-7 unused.
 
-| Test | Total BW | Active Channels | Per-Ch BW |
-|:----|:--------:|:---------------:|:---------:|
-| 4 PEs → 4ch | 46.19 GB/s | ch0-3 | 11.55 GB/s |
+| Test | Total BW | Per-Ch BW | Tx Count |
+|:----|:--------:|:---------:|:--------:|
+| 4 PEs → 4ch | **92.98 GB/s** | 23.24 GB/s | 8192/ch |
 
 ### Interleave Mode
 
-Traffic spreads evenly across all 8 channels. All distributions perfectly uniform (8192/ch).
+Traffic spreads perfectly uniform across all 8 channels.
 
-| Test | Total BW | Per-Ch BW | vs No-interleave |
-|:----|:--------:|:---------:|:----------------:|
-| 256B blocks | **52.29 GB/s** | 6.54 GB/s | +13% |
-| 4KB blocks | 43.96 GB/s | 5.50 GB/s | −5% |
-| 16KB blocks | 35.10 GB/s | 4.39 GB/s | −24% |
+| Test | Total BW | Per-Ch BW | vs 64B |
+|:----|:--------:|:---------:|:------:|
+| 256B blocks | **91.76 GB/s** | 11.47 GB/s | +75% |
 
-256B interleave achieves the highest total BW by maximizing bank-level parallelism — frequent channel switching keeps DRAM row buffers open and exploits all 8 channels. 16KB blocks drop 24% as longer sequential access to the same channel increases row-buffer conflicts.
+128B transactions nearly double the bandwidth vs 64B by amortizing packet overhead (HEAD+TAIL drops from 11% to 5.8%) and improving DRAM row-buffer efficiency (each activate delivers 2× data).
 
 ### Single-Channel Contention
 
-Without interleave, all PEs to the same channel are limited to one channel's bandwidth:
+All PEs to the same channel are limited to one channel's bandwidth:
 
-| Config | Total BW | Channel Distribution | Scale |
-|:------|:--------:|:-------------------:|:-----:|
-| 4 PEs → ch0 (`--noc-mode-a`) | 11.56 GB/s | 65536/0/0/0/0/0/0/0 | 1.00× |
-| 4 PEs → 8ch (Interleave 256B) | 52.29 GB/s | 8192 each channel | **4.52×** |
+| Config | Total BW | Distribution | Scale |
+|:------|:--------:|:------------:|:-----:|
+| 4 PEs → ch0 (`--noc-mode-a`) | 11.56 GB/s | 65536/0/0/... | 1.00× |
+| 4 PEs → 8ch (Interleave 256B) | 91.76 GB/s | 4096 each × 8 | **7.93×** |
 
 ### Data Consistency
 
@@ -155,7 +153,7 @@ The NoC uses Noxim's cycle-accurate Router model in a **3×4 mesh** configuratio
 - **XY routing** with RANDOM selection
 - **ABP (Alternating Bit Protocol)** flit-level handshake
 - **1 virtual channel**, 8-flit buffer depth
-- **18 flits per transaction** (1 HEAD + 16 data × 4B + 1 TAIL)
+- **34 flits per transaction** (1 HEAD + 32 data × 4B + 1 TAIL, 128B)
 - **Per-hop backpressure** via ABP ack protocol
 
 NoC latency includes multi-hop routing (1-6 hops in 3×4 mesh), router pipeline (reservation + forwarding per cycle), and link contention. A DRAM access from a PE to the farthest channel (ch7) traverses: PE → Router(x,0) → SOUTH → Router(x,1) → SOUTH → Router(x,2) → LOCAL → DramPE.
