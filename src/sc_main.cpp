@@ -49,6 +49,7 @@ static Args parseArgs(int argc, char** argv)
         else if (arg == "--noc-rate" && i + 1 < argc) args.nocRate = atof(argv[++i]);
         else if (arg == "--noc-clock" && i + 1 < argc) args.clockPeriod = atof(argv[++i]);
         else if (arg == "--addr-mode" && i + 1 < argc) args.addrMode = argv[++i];
+        else if (arg == "--pe-count" && i + 1 < argc) args.numPEs = atoi(argv[++i]);
         else if (arg == "--block-size" && i + 1 < argc) args.blockSize = atoi(argv[++i]);
         else if (arg == "--noc-mode-a") args.modeA = true;
         else if (arg == "--lpddr4") args.lpddr4 = true;
@@ -152,27 +153,25 @@ int sc_main(int argc, char** argv)
     for (int pe = 0; pe < 4; ++pe) {
         // Flat base address per mode
         uint64_t base;
+        bool pe_active = (pe < args.numPEs);
+        int pe_tx = pe_active ? args.nocTx : 0;
+
         if (interleave) {
-            // All PEs share address space, interleave naturally distributes
-            base = static_cast<uint64_t>(pe) * 0x10000;  // small offset for uniqueness
+            base = static_cast<uint64_t>(pe) * 0x10000;
         } else if (args.modeA) {
-            // All to channel 0: same base
             base = 0;
         } else {
-            // No-interleave per-channel: each PE in its own 512MB region (3bit at [31:29])
-            base = static_cast<uint64_t>(pe) << 29;  // PE0=0, PE1=0x20000000, PE2=0x40000000, PE3=0x60000000
+            base = static_cast<uint64_t>(pe) << 29;
         }
 
         auto* p = new TrafficPE(
             sc_module_name(("PE" + to_string(pe)).c_str()),
-            pe, args.nocTx, base, args.nocRate, args.is_read, data_len);
+            pe, pe_tx, base, args.nocRate, args.is_read, data_len);
 
-        // Configure address decoder
-        if (interleave) {
+        if (interleave)
             p->setAddrMode(AddrDecoder::INTERLEAVE, args.blockSize);
-        } else {
+        else
             p->setAddrMode(AddrDecoder::NO_INTERLEAVE);
-        }
 
         pes[pe] = p;
     }

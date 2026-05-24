@@ -133,15 +133,14 @@ Bandwidth is reported at **TLM initiator level** (DramPE→DRAMSys). DRAM bus ut
 0.2ns: NoC injection bottleneck (1 flit/cycle per PE at 5 GHz can't feed 8 channels).  
 0.1ns: NoC 2× faster, maxInFlight 2× deeper → DRAM saturates at 94.4% bus utilization, limited by tRCD/tCL/tRP/refresh overhead.
 
-### Per-PE Injection Limit (0.1ns)
+### Single-PE vs Multi-PE (8ch interleave 256B, 0.1ns)
 
-| Metric | Per PE | 4 PEs | Formula |
-|:-------|:------:|:-----:|:--------|
-| Flit rate | 10 Gflits/s | 40 Gflits/s | 1 flit/cycle × 10 GHz |
-| TLM BW | **37.6 GB/s** | 150 GB/s | 10G / 34 × 128B |
-| Bus BW | 18.8 GB/s | 75.2 GB/s | same bytes |
+| PEs | Total (TLM) | Bus util | Per-Ch |
+|:---:|:----------:|:--------:|:------:|
+| 1 | 98.7 GB/s | **82.7%** | 12.3 GB/s |
+| 4 | 112.7 GB/s | **94.4%** | 14.1 GB/s |
 
-Each PE is hard-limited to 37.6 GB/s TLM by 1 flit/cycle injection at 10 GHz.
+A single PE's injection stream has inter-packet gaps that leave DRAM idle 17% of the time. 4 PEs interleave their streams, filling those gaps and pushing utilization to 94.4%.
 
 ### Data Consistency
 
