@@ -114,33 +114,33 @@ LD_LIBRARY_PATH=/data/zhuo.wang/DRAMSys/install/lib:/data/zhuo.wang/systemc302_v
 All tests: 0.2ns NoC clock, DDR4-1866, 8 channels (3×4 mesh), AT cycle-accurate DRAM, READ, **128B transactions** (34 flits/packet), 1MB/PE.
 
 All tests: READ, 128B transactions, DDR4-1866 ×64 (14.9 GB/s/ch = 119.2 GB/s aggregate bus max).
-Bandwidth is reported at **TLM initiator level** (DramPE→DRAMSys). DRAM bus utilization from DRAMSys controller stats in brackets.
+Bandwidth measured **E2E**: `total_bytes / (last_resp_time - first_req_time)` excluding reset and drain.
+DRAM bus utilization from DRAMSys controller stats in brackets.
 
 ### No-interleave Mode (0.2ns clock)
 
-| Test | Total (TLM) | Per-Ch | Bus util |
-|:----|:----------:|:------:|:--------:|
-| 4 PEs → 4ch | 93.0 GB/s | 23.2 GB/s | **77.9%** |
+| Test | E2E time | Total | Per-Ch | Bus util |
+|:----|:--------:|:-----:|:------:|:--------:|
+| 4 PEs → 4ch | 45 μs | 93.2 GB/s | 23.3 GB/s | **77.9%** |
 
 ### Interleave Mode (256B blocks, 8ch)
 
-| Test | Clock | maxInFlight | Total (TLM) | Per-Ch | Bus util |
-|:----|:-----:|:-----------:|:----------:|:------:|:--------:|
-| 4 PEs → 8ch | 0.2ns | 128 | 22.9 GB/s | 2.9 GB/s | **19.2%** |
-| 4 PEs → 8ch | **0.1ns** | **256** | **112.7 GB/s** | 14.1 GB/s | **94.4%** |
-| 4 PEs → 8ch | — | — | — | 14.9×8×94.4%=| 112.7 GB/s bus |
+| Test | Clock | maxInFlight | E2E time | Total | Per-Ch | Bus util |
+|:----|:-----:|:-----------:|:--------:|:-----:|:------:|:--------:|
+| 4 PEs → 8ch | 0.2ns | 128 | 89 μs | 47.1 GB/s | 5.9 GB/s | **19.2%** |
+| 4 PEs → 8ch | **0.1ns** | **256** | **18.5 μs** | **226.7 GB/s** | 28.3 GB/s | **94.4%** |
 
 0.2ns: NoC injection bottleneck (1 flit/cycle per PE at 5 GHz can't feed 8 channels).  
-0.1ns: NoC 2× faster, maxInFlight 2× deeper → DRAM saturates at 94.4% bus utilization, limited by tRCD/tCL/tRP/refresh overhead.
+0.1ns: NoC 2× faster, maxInFlight 2× deeper → DRAM saturates at 94.4%.
 
 ### Single-PE vs Multi-PE (8ch interleave 256B, 0.1ns)
 
-| PEs | Total (TLM) | Bus util | Per-Ch |
-|:---:|:----------:|:--------:|:------:|
-| 1 | 98.7 GB/s | **82.7%** | 12.3 GB/s |
-| 4 | 112.7 GB/s | **94.4%** | 14.1 GB/s |
+| PEs | E2E time | Total | Bus util | Per-Ch |
+|:---:|:--------:|:-----:|:--------:|:------:|
+| 1 | 5.2 μs | 201.6 GB/s | **82.7%** | 25.2 GB/s |
+| 4 | 18.5 μs | 226.7 GB/s | **94.4%** | 28.3 GB/s |
 
-A single PE's injection stream has inter-packet gaps that leave DRAM idle 17% of the time. 4 PEs interleave their streams, filling those gaps and pushing utilization to 94.4%.
+Single PE's injection stream has inter-packet gaps (34-flit packets) that leave DRAM idle 17% of the time. 4 PEs interleave streams, filling gaps → 94.4%.
 
 ### Data Consistency
 
