@@ -82,6 +82,9 @@ public:
     uint64_t rx_completed() const { return m_rx_completed; }
     int  pe_id() const { return m_pe_id; }
 
+    // VCD trace
+    void traceAll(sc_core::sc_trace_file* tf) const;
+
 private:
     void run();             // SC_THREAD
     void txProcess();       // SC_METHOD
@@ -109,6 +112,13 @@ private:
     Flit m_rx_pkt_buf[34];
     int  m_rx_pkt_len;
     int  m_rx_pkt_seq;
+
+    // VCD trace signals
+    sc_signal<int>      m_sig_queue_depth{"queue_depth"};
+    sc_signal<uint64_t> m_sig_tx_sent{"tx_sent"};
+    sc_signal<uint64_t> m_sig_addr{"flit_addr"};
+    sc_signal<int>      m_sig_flit_type{"flit_type"};
+    sc_signal<bool>     m_sig_abp_tx{"abp_tx"};
 };
 
 #endif // TRAFFIC_PE_H

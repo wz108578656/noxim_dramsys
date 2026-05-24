@@ -196,6 +196,13 @@ int sc_main(int argc, char** argv)
         vcd_tf = sc_create_vcd_trace_file(args.vcdFile.c_str());
         sc_trace(vcd_tf, noc_clk, "noc_clk");
         sc_trace(vcd_tf, noc_rst, "noc_rst");
+
+        // Module-level traces
+        for (int pe = 0; pe < 4; ++pe)
+            pes[pe]->traceAll(vcd_tf);
+        for (int ch = 0; ch < NUM_CH; ++ch)
+            drams[ch]->traceAll(vcd_tf);
+
         cout << "  [VCD trace] Writing to " << args.vcdFile << endl;
     }
 

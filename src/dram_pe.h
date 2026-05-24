@@ -86,6 +86,16 @@ private:
 
     // ABP
     bool m_current_level_rx;
+
+public:
+    // VCD trace
+    void traceAll(sc_core::sc_trace_file* tf) const;
+
+private:
+    sc_signal<int>      m_sig_pending{"pending"};
+    sc_signal<uint64_t> m_sig_completed{"completed"};
+    sc_signal<uint64_t> m_sig_bytes{"bytes"};
+    sc_signal<int>      m_sig_rx_seq{"rx_seq"};
 };
 
 #endif // DRAM_PE_H

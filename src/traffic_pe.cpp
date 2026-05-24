@@ -153,6 +153,14 @@ void TrafficPE::txProcess()
         txp.pkt.flit_left--;
         if (txp.pkt.flit_left == 0)
             m_tx_queue.pop();
+
+        // VCD trace
+        m_sig_queue_depth.write(static_cast<int>(m_tx_queue.size()));
+        m_sig_tx_sent.write(m_tx_sent);
+        m_sig_flit_type.write(static_cast<int>(f.flit_type));
+        m_sig_abp_tx.write(m_current_level_tx);
+        if (f.flit_type == FLIT_TYPE_HEAD)
+            m_sig_addr.write(txp.address & 0xFFFFFFFFULL);
     }
 }
 
@@ -184,4 +192,16 @@ void TrafficPE::rxProcess()
         m_current_level_rx = !m_current_level_rx;
     }
     ack_rx.write(m_current_level_rx);
+}
+
+// ---------------------------------------------------------------------------
+// traceAll — register VCD trace signals
+// ---------------------------------------------------------------------------
+void TrafficPE::traceAll(sc_core::sc_trace_file* tf) const
+{
+    sc_core::sc_trace(tf, m_sig_queue_depth, m_sig_queue_depth.name());
+    sc_core::sc_trace(tf, m_sig_tx_sent, m_sig_tx_sent.name());
+    sc_core::sc_trace(tf, m_sig_addr, m_sig_addr.name());
+    sc_core::sc_trace(tf, m_sig_flit_type, m_sig_flit_type.name());
+    sc_core::sc_trace(tf, m_sig_abp_tx, m_sig_abp_tx.name());
 }

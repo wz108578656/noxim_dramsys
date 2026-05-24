@@ -72,7 +72,11 @@ void DramPE::rxProcess()
     if (m_rx_seq < m_rx_len)
         m_rx_buf[m_rx_seq++] = f;
 
+    m_sig_rx_seq.write(m_rx_seq);
+
     if (f.flit_type == FLIT_TYPE_TAIL && m_rx_seq == m_rx_len) {
+        m_sig_rx_seq.write(0);  // reset after complete
+
         // Complete packet — decode and push to Rx queue
         RxPacket pkt;
         Flit& head = m_rx_buf[0];
@@ -116,6 +120,8 @@ void DramPE::process()
 
         RxPacket pkt = m_rx_pkts.front();
         m_rx_pkts.pop();
+
+        m_sig_pending.write(static_cast<int>(m_pending.size()));
 
         // Allocate TLM payload
         auto* trans = new tlm_generic_payload();
@@ -169,6 +175,8 @@ tlm_sync_enum DramPE::nb_transport_bw(int /*tag*/,
             m_bytes += trans.get_data_length();
             delete[] trans.get_data_ptr();
             m_pending.pop_front();
+            m_sig_completed.write(m_completed);
+            m_sig_bytes.write(m_bytes);
         }
 
         m_pendingSlot.notify(SC_ZERO_TIME);
@@ -176,4 +184,15 @@ tlm_sync_enum DramPE::nb_transport_bw(int /*tag*/,
     }
 
     return TLM_ACCEPTED;
+}
+
+// ---------------------------------------------------------------------------
+// traceAll — register VCD trace signals
+// ---------------------------------------------------------------------------
+void DramPE::traceAll(sc_core::sc_trace_file* tf) const
+{
+    sc_core::sc_trace(tf, m_sig_pending, m_sig_pending.name());
+    sc_core::sc_trace(tf, m_sig_completed, m_sig_completed.name());
+    sc_core::sc_trace(tf, m_sig_bytes, m_sig_bytes.name());
+    sc_core::sc_trace(tf, m_sig_rx_seq, m_sig_rx_seq.name());
 }
