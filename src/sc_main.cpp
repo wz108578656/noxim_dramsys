@@ -247,14 +247,15 @@ int sc_main(int argc, char** argv)
     // DDR4-1866 ×64: 1866 MT/s × 8B = 14.9 GB/s per channel (DRAM bus max)
     const double BUS_GBS_PER_CH = 14.9;
 
-    // ---- Bandwidth Report (DRAM bus level) ----
-    // Normalize to DRAM bus: TLM_bytes * (64 / tx_size)
-    // This gives the actual bytes transferred on the DRAM data bus.
-    cout << "\n============ Bandwidth Report ============" << endl;
+    // ---- Bandwidth Report ----
+    // TLM BW (Bytes/sim_time): data rate at the TLM initiator interface.
+    // DRAM bus BW = TLM BW, limited to 14.9 GB/s/ch (DDR4-1866 ×64).
+    // Bus utilization = (TLM BW / BUS_GBS_PER_CH) capped at 100%.
+    cout << "\n============ Bandwidth Report (TLM) ============" << endl;
     cout << "  Mode: " << modeStr << endl;
     cout << "  Time: " << fixed << setprecision(1) << sim_time_ns << " ns" << endl;
 
-    uint64_t totalBusBytes = 0;
+    uint64_t totalBytes = 0;
     int active_channels = 0;
     int tx_size = 0;
     for (int ch = 0; ch < NUM_CH; ++ch) {
@@ -265,25 +266,24 @@ int sc_main(int argc, char** argv)
 
         int txb = static_cast<int>(chBytes / chTx);
         if (tx_size == 0) tx_size = txb;
-        uint64_t busBytes = chBytes * 64 / txb;
 
-        double chBusBW = (sim_time_ns > 0) ? (busBytes / sim_time_ns) : 0.0;
-        double util = (chBusBW / BUS_GBS_PER_CH) * 100.0;
-        if (util > 100.0) util = 100.0;
+        double chBW = (sim_time_ns > 0) ? (chBytes / sim_time_ns) : 0.0;
+        double busUtil = (chBW / BUS_GBS_PER_CH) * 100.0;
+        if (busUtil > 100.0) busUtil = 100.0;
 
         cout << "  CH" << ch << ": " << chTx << " tx, "
-             << fixed << setprecision(1) << util << "%"
-             << " (" << chBusBW << " GB/s)" << endl;
-        totalBusBytes += busBytes;
+             << chBW << " GB/s (TLM)"
+             << "  bus=" << fixed << setprecision(1) << busUtil << "%" << endl;
+        totalBytes += chBytes;
     }
 
-    double totalBusBW = (sim_time_ns > 0) ? (totalBusBytes / sim_time_ns) : 0.0;
-    double totalUtil = active_channels > 0
-        ? (totalBusBW / (BUS_GBS_PER_CH * active_channels)) * 100.0 : 0.0;
-    if (totalUtil > 100.0) totalUtil = 100.0;
-    cout << "  Total: " << totalBusBytes << " busB, "
-         << fixed << setprecision(1) << totalUtil << "%"
-         << " (" << totalBusBW << " GB/s)"
+    double totalBW = (sim_time_ns > 0) ? (totalBytes / sim_time_ns) : 0.0;
+    double totalBusUtil = active_channels > 0
+        ? (totalBW / (BUS_GBS_PER_CH * active_channels)) * 100.0 : 0.0;
+    if (totalBusUtil > 100.0) totalBusUtil = 100.0;
+    cout << "  Total: " << totalBytes << " bytes, "
+         << totalBW << " GB/s (TLM)"
+         << "  bus=" << fixed << setprecision(1) << totalBusUtil << "%"
          << "  tx=" << tx_size << "B"
          << "  ch=" << active_channels << endl;
     cout << "==========================================\n" << endl;
