@@ -205,6 +205,7 @@ int sc_main(int argc, char** argv)
     noc_rst.write(1);
     sc_start(10, SC_NS);
     noc_rst.write(0);
+    sc_time t_start = sc_time_stamp();           // E2E: first request starts here
 
     sc_time poll_interval(100, SC_NS);
     sc_time timeout(args.maxCycles * args.clockPeriod, SC_NS);
@@ -227,6 +228,8 @@ int sc_main(int argc, char** argv)
             break;
         }
     }
+    sc_time t_end = sc_time_stamp();             // E2E: last response received
+    double e2e_ns = (t_end - t_start).to_seconds() * 1e9;
 
     // Drain
     cout << "  [Drain] Waiting..." << endl;
@@ -242,17 +245,16 @@ int sc_main(int argc, char** argv)
 
     if (vcd_tf) sc_close_vcd_trace_file(vcd_tf);
 
-    double sim_time_ns = sc_time_stamp().to_seconds() * 1e9;
     // DDR4-1866 ×64: 1866 MT/s × 8B = 14.9 GB/s per channel (DRAM bus max)
     const double BUS_GBS_PER_CH = 14.9;
 
     // ---- Bandwidth Report ----
-    // TLM BW (Bytes/sim_time): data rate at the TLM initiator interface.
-    // DRAM bus BW = TLM BW, limited to 14.9 GB/s/ch (DDR4-1866 ×64).
-    // Bus utilization = (TLM BW / BUS_GBS_PER_CH) capped at 100%.
-    cout << "\n============ Bandwidth Report (TLM) ============" << endl;
+    // E2E time: from first request (post-reset) to last response (before drain).
+    // TLM BW = total_bytes / e2e_ns.
+    // bus utilization = TLM BW / BUS_GBS_PER_CH (capped; true util from DRAMSys).
+    cout << "\n============ Bandwidth Report ============" << endl;
     cout << "  Mode: " << modeStr << endl;
-    cout << "  Time: " << fixed << setprecision(1) << sim_time_ns << " ns" << endl;
+    cout << "  E2E time: " << fixed << setprecision(1) << e2e_ns << " ns" << endl;
 
     uint64_t totalBytes = 0;
     int active_channels = 0;
@@ -266,25 +268,26 @@ int sc_main(int argc, char** argv)
         int txb = static_cast<int>(chBytes / chTx);
         if (tx_size == 0) tx_size = txb;
 
-        double chBW = (sim_time_ns > 0) ? (chBytes / sim_time_ns) : 0.0;
+        double chBW = (e2e_ns > 0) ? (chBytes / e2e_ns) : 0.0;
         double busUtil = (chBW / BUS_GBS_PER_CH) * 100.0;
         if (busUtil > 100.0) busUtil = 100.0;
 
         cout << "  CH" << ch << ": " << chTx << " tx, "
-             << chBW << " GB/s (TLM)"
+             << chBW << " GB/s (E2E)"
              << "  bus=" << fixed << setprecision(1) << busUtil << "%" << endl;
         totalBytes += chBytes;
     }
 
-    double totalBW = (sim_time_ns > 0) ? (totalBytes / sim_time_ns) : 0.0;
-    double totalBusUtil = active_channels > 0
-        ? (totalBW / (BUS_GBS_PER_CH * active_channels)) * 100.0 : 0.0;
-    if (totalBusUtil > 100.0) totalBusUtil = 100.0;
-    cout << "  Total: " << totalBytes << " bytes, "
-         << totalBW << " GB/s (TLM)"
-         << "  bus=" << fixed << setprecision(1) << totalBusUtil << "%"
+    if (active_channels > 0) {
+        double totalBW = totalBytes / e2e_ns;
+        double totalBusUtil = (totalBW / (BUS_GBS_PER_CH * active_channels)) * 100.0;
+        if (totalBusUtil > 100.0) totalBusUtil = 100.0;
+        cout << "  Total: " << totalBytes << " bytes, "
+             << totalBW << " GB/s (E2E)"
+             << "  bus=" << fixed << setprecision(1) << totalBusUtil << "%"
          << "  tx=" << tx_size << "B"
          << "  ch=" << active_channels << endl;
+    }
     cout << "==========================================\n" << endl;
 
     // ---- Data consistency check ----
