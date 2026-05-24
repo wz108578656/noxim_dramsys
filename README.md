@@ -131,6 +131,15 @@ All tests: READ, 128B transactions, DDR4-1866 ×64 (14.9 GB/s/ch DRAM bus max).
 
 0.2ns: NoC injection bottleneck limits per-channel to 2.9 GB/s. 0.1ns doubles injection bandwidth; with maxInFlight=256, DRAM saturates at 94.5% of theoretical aggregate bandwidth (119.2 GB/s).
 
+### Per-PE Performance (8ch, 0.1ns)
+
+| Scenario | DRAM Bus BW | TLM BW | Limiter |
+|:---------|:----------:|:------:|:--------|
+| 1 PE → 8ch interleave | ~18.8 GB/s | ~37.6 GB/s | NoC injection (10 Gflits/s × 4B / 34 × 128B / 2) |
+| 4 PEs → 8ch interleave | **28.2 GB/s per PE** | **56.4 GB/s** | DRAM (8ch × 14.9 × 94.5% / 4) |
+
+Single PE is NoC-limited (10 GHz flit injection feeds only 18.8 GB/s DRAM bus). With 4 PEs, the NoC delivers enough aggregate injection to saturate all 8 DRAM channels, and per-PE BW rises to 28.2 GB/s because DRAM parallelism (8ch × 14.9 GB/s) ÷ 4 PEs = 29.8 GB/s theoretical max per PE.
+
 ### Data Consistency
 
 ```
