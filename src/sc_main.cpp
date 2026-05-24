@@ -247,54 +247,45 @@ int sc_main(int argc, char** argv)
     // DDR4-1866 ×64: 1866 MT/s × 8B = 14.9 GB/s per channel (DRAM bus max)
     const double BUS_GBS_PER_CH = 14.9;
 
-    // ---- Bandwidth Report ----
+    // ---- Bandwidth Report (DRAM bus level) ----
+    // Normalize to DRAM bus: TLM_bytes * (64 / tx_size)
+    // This gives the actual bytes transferred on the DRAM data bus.
     cout << "\n============ Bandwidth Report ============" << endl;
     cout << "  Mode: " << modeStr << endl;
     cout << "  Time: " << fixed << setprecision(1) << sim_time_ns << " ns" << endl;
 
-    uint64_t totalBytes = 0;
+    uint64_t totalBusBytes = 0;
     int active_channels = 0;
+    int tx_size = 0;
     for (int ch = 0; ch < NUM_CH; ++ch) {
         uint64_t chBytes = drams[ch]->bytesTransferred();
         uint64_t chTx    = drams[ch]->completed();
         if (chTx == 0) continue;
         active_channels++;
 
-        // Compute transaction size and DDR burst count
-        int tx_bytes = static_cast<int>(chBytes / chTx);
-        int bursts_per_tx = tx_bytes / 64;  // DDR burst = 64B
-        if (bursts_per_tx < 1) bursts_per_tx = 1;
+        int txb = static_cast<int>(chBytes / chTx);
+        if (tx_size == 0) tx_size = txb;
+        uint64_t busBytes = chBytes * 64 / txb;
 
-        // TLM BW includes multiple bursts per transaction
-        double chBW = chBytes / sim_time_ns;
-        double max_ch_bw = BUS_GBS_PER_CH * bursts_per_tx;  // TLM-level max
-        double util = (chBW / max_ch_bw) * 100.0;
+        double chBusBW = (sim_time_ns > 0) ? (busBytes / sim_time_ns) : 0.0;
+        double util = (chBusBW / BUS_GBS_PER_CH) * 100.0;
         if (util > 100.0) util = 100.0;
 
         cout << "  CH" << ch << ": " << chTx << " tx, "
-             << chBytes << " bytes, "
              << fixed << setprecision(1) << util << "%"
-             << " (" << (chBW < max_ch_bw ? chBW : max_ch_bw) << " GB/s)" << endl;
-        totalBytes += chBytes;
+             << " (" << chBusBW << " GB/s)" << endl;
+        totalBusBytes += busBytes;
     }
 
-    // Total BW: compute utilization against aggregate bus bandwidth
-    double totalBusBW = (sim_time_ns > 0) ? (totalBytes / sim_time_ns) : 0.0;
-    double avg_bursts = 1.0;
-    for (int ch = 0; ch < NUM_CH; ++ch) {
-        if (drams[ch]->completed() > 0) {
-            int txb = static_cast<int>(drams[ch]->bytesTransferred() / drams[ch]->completed());
-            avg_bursts = (txb / 64.0 < 1.0) ? 1.0 : (txb / 64.0);
-            break;
-        }
-    }
-    double max_total_bw = BUS_GBS_PER_CH * active_channels * avg_bursts;
-    double totalUtil = max_total_bw > 0 ? (totalBusBW / max_total_bw) * 100.0 : 0.0;
+    double totalBusBW = (sim_time_ns > 0) ? (totalBusBytes / sim_time_ns) : 0.0;
+    double totalUtil = active_channels > 0
+        ? (totalBusBW / (BUS_GBS_PER_CH * active_channels)) * 100.0 : 0.0;
     if (totalUtil > 100.0) totalUtil = 100.0;
-    cout << "  Total: " << totalBytes << " bytes, "
+    cout << "  Total: " << totalBusBytes << " busB, "
          << fixed << setprecision(1) << totalUtil << "%"
-         << " (" << (totalBusBW < max_total_bw ? totalBusBW : max_total_bw) << " GB/s)"
-         << "  active_ch=" << active_channels << endl;
+         << " (" << totalBusBW << " GB/s)"
+         << "  tx=" << tx_size << "B"
+         << "  ch=" << active_channels << endl;
     cout << "==========================================\n" << endl;
 
     // ---- Data consistency check ----
