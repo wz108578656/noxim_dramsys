@@ -29,7 +29,7 @@ struct RxPacket {
     uint64_t address;
     bool     is_write;
     int      tag;
-    uint32_t data[32];  // up to 128 bytes
+    uint32_t data[128];  // up to 512 bytes
     int      data_len;  // in bytes
 };
 
@@ -76,7 +76,7 @@ private:
     sc_core::sc_event m_pendingSlot;
 
     // Rx assembly state
-    Flit m_rx_buf[2];   // HEAD + TAIL
+    Flit m_rx_buf[5];   // HEAD + up to 3×BODY + TAIL (max 512B)
     int  m_rx_len;
     int  m_rx_seq;
 

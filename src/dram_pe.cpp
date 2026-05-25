@@ -65,7 +65,7 @@ void DramPE::rxProcess()
 
     if (f.flit_type == FLIT_TYPE_HEAD) {
         m_rx_len = f.sequence_length;
-        if (m_rx_len > 2) m_rx_len = 2;
+        if (m_rx_len > 5) m_rx_len = 5;
         m_rx_seq = 0;
     }
 
@@ -85,12 +85,20 @@ void DramPE::rxProcess()
             pkt.address |= (static_cast<uint64_t>(head.hub_relay_node) << 32);
         pkt.is_write = (head.vc_id & 0x80) != 0;
         pkt.tag      = (head.vc_id & 0x3F);
-        pkt.data_len = 128;
+        pkt.data_len = (m_rx_seq - 1) * 128;  // exclude TAIL flit, each = 128B
         memset(pkt.data, 0, sizeof(pkt.data));
 
-        // Extract 128B data from HEAD.ext_data (single-flit payload)
-        if (pkt.is_write)
-            memcpy(pkt.data, head.ext_data, 128);
+        // Concatenate ext_data from HEAD and all BODY flits
+        if (pkt.is_write) {
+            int offset = 0;
+            for (int i = 0; i < m_rx_seq; ++i) {
+                int copy_bytes = sizeof(m_rx_buf[i].ext_data);  // 128
+                if (offset + copy_bytes > (int)sizeof(pkt.data))
+                    copy_bytes = sizeof(pkt.data) - offset;
+                memcpy((uint8_t*)pkt.data + offset, m_rx_buf[i].ext_data, copy_bytes);
+                offset += copy_bytes;
+            }
+        }
 
         m_rx_pkts.push(pkt);
         m_rxPktEvent.notify(SC_ZERO_TIME);
@@ -125,9 +133,10 @@ void DramPE::process()
         auto* trans = new tlm_generic_payload();
         trans->set_mm(m_mm);
 
-        unsigned char* data_ptr = new unsigned char[128]();
+        int data_len_bytes = pkt.data_len;
+        unsigned char* data_ptr = new unsigned char[data_len_bytes]();
         if (pkt.is_write) {
-            memcpy(data_ptr, pkt.data, 128);
+            memcpy(data_ptr, pkt.data, data_len_bytes);
             trans->set_command(TLM_WRITE_COMMAND);
         } else {
             trans->set_command(TLM_READ_COMMAND);

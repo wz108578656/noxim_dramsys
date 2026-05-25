@@ -73,7 +73,7 @@ void TrafficPE::run()
         txp.pkt.dst_id  = dst_tile;
         txp.pkt.vc_id   = 0;
         txp.pkt.timestamp = sc_time_stamp().to_seconds();
-        txp.pkt.size    = 2;  // HEAD + TAIL (128B data embedded in HEAD)
+        txp.pkt.size    = 2 + (m_data_len - 1) / 128;  // HEAD + DATA+ TAIL
         txp.pkt.flit_left = txp.pkt.size;
 
         m_tx_queue.push(txp);
@@ -113,10 +113,16 @@ Flit TrafficPE::nextFlit(TxPacket& txp, int seq)
     if (f.flit_type == FLIT_TYPE_HEAD) {
         f.payload.data = static_cast<uint32_t>(txp.address & 0xFFFFFFFFULL);
         f.hub_relay_node = static_cast<int>((txp.address >> 32) & 0xFFFF);
-        // Pack 128B data into HEAD flit's extended payload
-        memcpy(f.ext_data, txp.data, 128);
+        // First 128B of data
+        memcpy(f.ext_data, &txp.data[0], 128);
+    } else if (f.flit_type == FLIT_TYPE_BODY) {
+        // Subsequent 128B chunks (seq=1,2,3...)
+        int chunk = seq - 1;  // 0-based data chunk after HEAD
+        if (chunk >= 0 && chunk * 128 < (int)sizeof(txp.data))
+            memcpy(f.ext_data, &txp.data[chunk * 128], 128);
+        f.hub_relay_node = NOT_VALID;
     } else {
-        // TAIL: tag only, no data
+        // TAIL: tag only
         f.payload.data = static_cast<uint32_t>(txp.tag);
         f.hub_relay_node = NOT_VALID;
     }

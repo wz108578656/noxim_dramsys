@@ -32,6 +32,7 @@ struct Args {
     bool   modeA         = false;   // force all traffic to ch0
     string addrMode      = "nointerleave";
     int    blockSize     = 4096;
+    int    txSize        = 256;
     bool   lpddr4        = false;
     bool   is_read       = false;
     int    maxCycles     = 100000;
@@ -51,6 +52,7 @@ static Args parseArgs(int argc, char** argv)
         else if (arg == "--addr-mode" && i + 1 < argc) args.addrMode = argv[++i];
         else if (arg == "--pe-count" && i + 1 < argc) args.numPEs = atoi(argv[++i]);
         else if (arg == "--block-size" && i + 1 < argc) args.blockSize = atoi(argv[++i]);
+        else if (arg == "--tx-size" && i + 1 < argc) args.txSize = atoi(argv[++i]);
         else if (arg == "--noc-mode-a") args.modeA = true;
         else if (arg == "--lpddr4") args.lpddr4 = true;
         else if (arg == "--noc-read") args.is_read = true;
@@ -122,8 +124,11 @@ int sc_main(int argc, char** argv)
     GlobalParams::selection_strategy = "RANDOM";
     GlobalParams::clock_period_ps = static_cast<int>(args.clockPeriod * 1000);
     GlobalParams::use_winoc = false;
-    GlobalParams::min_packet_size = 2;   // HEAD + TAIL
-    GlobalParams::max_packet_size = 2;
+    GlobalParams::min_packet_size = 2;       // HEAD + TAIL (128B)
+    GlobalParams::max_packet_size = 2;       // will be recalculated per tx_size
+    // Recalculate: ceil(txSize/128) + 2  (HEAD + DATA flits + TAIL)
+    GlobalParams::max_packet_size = 2 + (args.txSize - 1) / 128;
+    GlobalParams::min_packet_size = GlobalParams::max_packet_size;
     GlobalParams::packet_injection_rate = 1.0;
     GlobalParams::probability_of_retransmission = 0.0;
     GlobalParams::simulation_time = args.maxCycles;
@@ -148,7 +153,7 @@ int sc_main(int argc, char** argv)
 
     // ---- Create TrafficPEs (row 0) ----
     TrafficPE* pes[4];
-    int data_len = 128;
+    int data_len = args.txSize;
 
     for (int pe = 0; pe < 4; ++pe) {
         // Flat base address per mode

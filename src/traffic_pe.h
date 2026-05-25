@@ -47,7 +47,7 @@ struct AddrDecoder {
 struct TxPacket {
     Packet   pkt;
     uint64_t address;
-    uint32_t data[32];  // 128 bytes
+    uint32_t data[128];  // up to 512 bytes
     int      tag;
 };
 
