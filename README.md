@@ -109,23 +109,20 @@ All tests: **2×8 mesh**, 8 PEs, 0.2ns (5 GHz) NoC clock, DDR4-1866 ×64 8ch (11
 READ, **256B/128B flit transactions**, maxInFlight=64, ArbiterFifo with full backpressure.
 **Bus utilization** from DRAMSys controller output is the authoritative bandwidth metric.
 
-### 8ch Performance
+### 2×8 Mesh Performance (READ, 256B, 0.2ns, maxInFlight=16)
 
-| Mode | Block | Bus util | Aggregate bus BW |
-|:----|:-----:|:--------:|:----------------:|
-| No-interleave 8 PE → 8ch | — | **92.9%** | 110.7 GB/s |
-| Interleave | 256B | **93.4%** | 111.3 GB/s |
-| Interleave | 4KB | **92.4%** | 110.1 GB/s |
-| Interleave | 16KB | **65.5%** | 78.1 GB/s |
+| Mode | Bus util | Aggregate bus BW | Note |
+|:----|:--------:|:----------------:|:-----|
+| No-interleave 8 PE → 8ch | **79.4%** | 94.6 GB/s | Per-channel 1:1, ~16 deep pipeline |
+| Interleave 256B | **91.0%** | 108.5 GB/s | Best interleave, full 8ch |
+| Interleave 4KB | **84.8%** | 101.1 GB/s | Row locality helps |
+| Interleave 16KB | **51.0%** | 60.8 GB/s | Refresh + long sequential |
 
-With 8 PEs each targeting its own channel (no-interleave), utilization reaches 92.9%—only ~1% below the best interleave case. The 2×8 mesh eliminates the NoC bottleneck that limited previous 4-PE configs.
+### Single-PE Limit
 
-### Single-PE Injection Limit
-
-| PEs | Bus util | Limiter |
-|:---:|:--------:|:--------|
-| 1 → 8ch interleave | **43.0%** | ABP 2-cycle injection (1 flit/2cyc × 128B = 320 GB/s link, but 1 PE only fills ~43% of DRAM) |
-| 8 → 8ch no-interleave | **92.9%** | DRAM bus saturated |
+| PEs | Mode | Bus util |
+|:---:|:----|:--------:|
+| 1 | 8ch interleave 256B | **43.0%** |
 
 Single PE is injection-limited. 8 PEs collectively saturate the DRAM bus regardless of interleave mode.
 

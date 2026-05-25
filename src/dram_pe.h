@@ -67,7 +67,7 @@ private:
 
     int  m_channel;
     int  m_tag;
-    int  m_maxInFlight = 64;  // DRAM pipeline depth; backpressure when full
+    int  m_maxInFlight = 16;  // DRAM pipeline depth; backpressure when full
     uint64_t m_completed;
     uint64_t m_bytes;
 
