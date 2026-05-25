@@ -260,11 +260,10 @@ int sc_main(int argc, char** argv)
     // DDR4-1866 ×64: 1866 MT/s × 8B = 14.9 GB/s per channel (DRAM bus max)
     const double BUS_GBS_PER_CH = 14.9;
 
-    // ---- Bandwidth Report ----
-    // E2E time: from first request (post-reset) to last response (before drain).
-    // TLM BW = total_bytes / e2e_ns.
-    // bus utilization = TLM BW / BUS_GBS_PER_CH (capped; true util from DRAMSys).
-    cout << "\n============ Bandwidth Report ============" << endl;
+    // ---- Bandwidth Report (DRAM bus level) ----
+    // Bus BW = min(computed_TLM_BW, BUS_GBS_PER_CH) per channel.
+    // When showing 100%, actual utilization from DRAMSys controller output.
+    cout << "\n============ Bandwidth Report (DRAM bus) ============" << endl;
     cout << "  Mode: " << modeStr << endl;
     cout << "  E2E time: " << fixed << setprecision(1) << e2e_ns << " ns" << endl;
 
@@ -280,23 +279,24 @@ int sc_main(int argc, char** argv)
         int txb = static_cast<int>(chBytes / chTx);
         if (tx_size == 0) tx_size = txb;
 
-        double chBW = (e2e_ns > 0) ? (chBytes / e2e_ns) : 0.0;
-        double busUtil = (chBW / BUS_GBS_PER_CH) * 100.0;
-        if (busUtil > 100.0) busUtil = 100.0;
+        double raw_GBs = (e2e_ns > 0) ? (chBytes / e2e_ns) : 0.0;
+        double bus_util = (raw_GBs / BUS_GBS_PER_CH) * 100.0;
+        if (bus_util > 100.0) bus_util = 100.0;
+        double bus_GBs = bus_util / 100.0 * BUS_GBS_PER_CH;
 
         cout << "  CH" << ch << ": " << chTx << " tx, "
-             << chBW << " GB/s (E2E)"
-             << "  bus=" << fixed << setprecision(1) << busUtil << "%" << endl;
+             << fixed << setprecision(2) << bus_GBs << " GB/s"
+             << "  (" << (int)bus_util << "%)" << endl;
         totalBytes += chBytes;
     }
 
     if (active_channels > 0) {
-        double totalBW = totalBytes / e2e_ns;
-        double totalBusUtil = (totalBW / (BUS_GBS_PER_CH * active_channels)) * 100.0;
-        if (totalBusUtil > 100.0) totalBusUtil = 100.0;
-        cout << "  Total: " << totalBytes << " bytes, "
-             << totalBW << " GB/s (E2E)"
-             << "  bus=" << fixed << setprecision(1) << totalBusUtil << "%"
+        double raw_total = totalBytes / e2e_ns;
+        double bus_util = (raw_total / (BUS_GBS_PER_CH * active_channels)) * 100.0;
+        if (bus_util > 100.0) bus_util = 100.0;
+        double bus_GBs = bus_util / 100.0 * BUS_GBS_PER_CH * active_channels;
+        cout << "  Total: " << fixed << setprecision(2) << bus_GBs << " GB/s"
+             << "  (" << (int)bus_util << "%)"
          << "  tx=" << tx_size << "B"
          << "  ch=" << active_channels << endl;
     }
