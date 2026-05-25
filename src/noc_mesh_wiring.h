@@ -31,9 +31,9 @@ struct SigNSWE_NOP {
 struct NocMeshWiring : public sc_module
 {
     // Dimensions
-    static const int DIM_X = 4;
-    static const int DIM_Y = 3;        // rows: PE + DRAM row0 + DRAM row1
-    static const int TOTAL = DIM_X * DIM_Y;  // 12
+    static const int DIM_X = 8;        // columns = 8 PEs / DRAMs
+    static const int DIM_Y = 2;        // rows: PE (row 0) + DRAM (row 1)
+    static const int TOTAL = DIM_X * DIM_Y;  // 16
 
     // Router matrix: r[x][y], id = y * DIM_X + x
     Router* r[DIM_X][DIM_Y];

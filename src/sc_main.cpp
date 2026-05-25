@@ -26,7 +26,7 @@ using namespace sc_core;
 struct Args {
     string dramConfig;
     int    nocTx         = 1000;
-    int    numPEs        = 4;
+    int    numPEs        = 8;
     double nocRate       = 0.0;
     double clockPeriod   = 1.0;
     bool   modeA         = false;   // force all traffic to ch0
@@ -104,7 +104,7 @@ int sc_main(int argc, char** argv)
                    : "No-interleave (per-ch)";
 
     cout << "\n================================================" << endl;
-    cout << "  NoC (Noxim 3x4 mesh) + DRAMSys" << endl;
+    cout << "  NoC (Noxim 2x8 mesh) + DRAMSys" << endl;
     cout << "  Mode: " << modeStr << endl;
     cout << "  PEs: " << args.numPEs << endl;
     cout << "  Transactions/PE: " << args.nocTx << endl;
@@ -115,8 +115,8 @@ int sc_main(int argc, char** argv)
 
     // ---- Noxim GlobalParams ----
     GlobalParams::topology = "MESH";
-    GlobalParams::mesh_dim_x = 4;
-    GlobalParams::mesh_dim_y = 3;      // 3 rows: PE + 2 DRAM rows
+    GlobalParams::mesh_dim_x = 8;      // 2x8 mesh: 8 columns
+    GlobalParams::mesh_dim_y = 2;      // 2 rows: PE (row0) + DRAM (row1)
     GlobalParams::buffer_depth = 8;
     GlobalParams::flit_size = 1024;  // 128B = 1024 bits
     GlobalParams::n_virtual_channels = 1;
@@ -152,10 +152,11 @@ int sc_main(int argc, char** argv)
     sc_signal<bool> noc_rst("noc_rst");
 
     // ---- Create TrafficPEs (row 0) ----
-    TrafficPE* pes[4];
+    static const int NUM_PE = 8;
+    TrafficPE* pes[NUM_PE];
     int data_len = args.txSize;
 
-    for (int pe = 0; pe < 4; ++pe) {
+    for (int pe = 0; pe < NUM_PE; ++pe) {
         // Flat base address per mode
         uint64_t base;
         bool pe_active = (pe < args.numPEs);
@@ -203,7 +204,7 @@ int sc_main(int argc, char** argv)
         sc_trace(vcd_tf, noc_rst, "noc_rst");
 
         // Module-level traces
-        for (int pe = 0; pe < 4; ++pe)
+        for (int pe = 0; pe < NUM_PE; ++pe)
             pes[pe]->traceAll(vcd_tf);
         for (int ch = 0; ch < NUM_CH; ++ch)
             drams[ch]->traceAll(vcd_tf);

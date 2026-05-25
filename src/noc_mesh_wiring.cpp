@@ -227,9 +227,9 @@ void NocMeshWiring::create(
     for (int i = 0; i < totalTiles; i++)
         nop_dummy[i].write(tmp_nop);
 
-    cout << "  [NocMeshWiring] 3x4 mesh created: " << totalTiles
+    cout << "  [NocMeshWiring] 2x8 mesh created: " << totalTiles
          << " routers, " << DIM_X << " PEs, "
-         << DIM_X * DRAM_ROWS << " DRAMs" << endl;
+         << DIM_X << " DRAMs" << endl;
 }
 
 // ---------------------------------------------------------------------------

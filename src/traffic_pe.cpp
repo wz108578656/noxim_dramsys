@@ -58,7 +58,7 @@ void TrafficPE::run()
 
         // Decode channel from flat address (mode-aware)
         int ch = m_decoder.decode(addr);
-        int dst_tile = 4 + ch;
+        int dst_tile = 8 + ch;  // 2x8 mesh: DRAM tiles start at 8
 
         TxPacket txp;
         txp.address = addr;
