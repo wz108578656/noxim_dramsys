@@ -160,10 +160,14 @@ void DramPE::process()
         trans->set_byte_enable_length(0);
         trans->set_dmi_allowed(false);
 
-        // AT: send BEGIN_REQ
+        // AT: send BEGIN_REQ (non-blocking)
         tlm_phase phase = BEGIN_REQ;
         sc_time delay = SC_ZERO_TIME;
-        m_ini->nb_transport_fw(*trans, phase, delay);
+        tlm_sync_enum status = m_ini->nb_transport_fw(*trans, phase, delay);
+
+        // If Arbiter deferred END_REQ (ArbiterFifo busy), wait for callback
+        if (status == TLM_ACCEPTED && phase == BEGIN_REQ)
+            wait(m_endReqEvent);
 
         m_pending.push_back({trans});
     }
@@ -175,8 +179,10 @@ void DramPE::process()
 tlm_sync_enum DramPE::nb_transport_bw(int /*tag*/,
     tlm_generic_payload& trans, tlm_phase& phase, sc_time& delay)
 {
-    if (phase == END_REQ)
+    if (phase == END_REQ) {
+        m_endReqEvent.notify(SC_ZERO_TIME);
         return TLM_ACCEPTED;
+    }
 
     if (phase == BEGIN_RESP) {
         tlm_phase end_phase = END_RESP;

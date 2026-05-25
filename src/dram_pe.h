@@ -74,6 +74,7 @@ private:
     SimpleMM* m_mm;
     std::deque<PendingTx> m_pending;
     sc_core::sc_event m_pendingSlot;
+    sc_core::sc_event m_endReqEvent;
 
     // Rx assembly state
     Flit m_rx_buf[5];   // HEAD + up to 3×BODY + TAIL (max 512B)

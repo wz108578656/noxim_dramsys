@@ -257,45 +257,24 @@ int sc_main(int argc, char** argv)
 
     if (vcd_tf) sc_close_vcd_trace_file(vcd_tf);
 
-    // DDR4-1866 ×64: 1866 MT/s × 8B = 14.9 GB/s per channel (DRAM bus max)
-    const double BUS_GBS_PER_CH = 14.9;
-
-    // ---- Bandwidth Report ----
-    // E2E BW = total_bytes / (last_resp - first_req). DDR4-1866 ×64 bus limit
-    // is 14.9 GB/s/ch. When E2E BW exceeds the bus limit, the DRAM bus is
-    // saturated; actual utilization visible in DRAMSys controller output.
-    cout << "\n============ Bandwidth Report ============" << endl;
+    // ---- Performance Report ----
+    // DRAM bus bandwidth is the authoritative metric. It is reported by
+    // DRAMSys controller output as AVG BW utilization %.
+    // DDR4-1866 ×64 limit: 14.9 GB/s per channel = BUS_GBS_PER_CH.
+    // Actual bus BW = BUS_GBS_PER_CH × utilization.
+    cout << "\n============ Performance Report ============" << endl;
     cout << "  Mode: " << modeStr << endl;
-    cout << "  E2E time: " << fixed << setprecision(1) << e2e_ns << " ns" << endl;
+    cout << "  E2E time: " << fixed << setprecision(0) << e2e_ns << " ns" << endl;
 
-    uint64_t totalBytes = 0;
-    int active_channels = 0;
-    int tx_size = 0;
+    // Summarize active channels
+    int active = 0;
+    uint64_t totalTx = 0;
     for (int ch = 0; ch < NUM_CH; ++ch) {
-        uint64_t chBytes = drams[ch]->bytesTransferred();
-        uint64_t chTx    = drams[ch]->completed();
-        if (chTx == 0) continue;
-        active_channels++;
-
-        int txb = static_cast<int>(chBytes / chTx);
-        if (tx_size == 0) tx_size = txb;
-
-        double chBW = (e2e_ns > 0) ? (chBytes / e2e_ns) : 0.0;
-        cout << "  CH" << ch << ": " << chTx << " tx, "
-             << fixed << setprecision(1) << chBW << " GB/s";
-        if (chBW > BUS_GBS_PER_CH)
-            cout << "  (bus sat, >" << BUS_GBS_PER_CH << ")";
-        cout << endl;
-        totalBytes += chBytes;
+        uint64_t chTx = drams[ch]->completed();
+        if (chTx > 0) active++;
+        totalTx += chTx;
     }
-
-    if (active_channels > 0) {
-        double totalBW = totalBytes / e2e_ns;
-        cout << "  Total: " << fixed << setprecision(1) << totalBW << " GB/s"
-         << "  tx=" << tx_size << "B"
-         << "  ch=" << active_channels << endl;
-    }
-    cout << "==========================================\n" << endl;
+    cout << "  " << totalTx << " tx, " << active << " channels active" << endl;
 
     // ---- Data consistency check ----
     {
