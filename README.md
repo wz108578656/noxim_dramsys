@@ -1,39 +1,33 @@
 # noxim_dramsys
 
-NoC (Noxim 2×4 mesh) + DRAMSys cycle-accurate co-simulation for multi-channel DRAM bandwidth analysis.
+NoC (Noxim 2×8 mesh) + DRAMSys cycle-accurate co-simulation for multi-channel DRAM bandwidth analysis.
 
 ## Architecture
 
 ```
-   TrafficPE[0]  TrafficPE[1]  TrafficPE[2]  TrafficPE[3]   ← ABP (row 0)
-      │              │              │              │
-   Router[0,0] ── Router[1,0] ── Router[2,0] ── Router[3,0] ← Noxim XY mesh
-      │              │              │              │
-   Router[0,1] ── Router[1,1] ── Router[2,1] ── Router[3,1] ← DRAM row 1
-      │              │              │              │
-   DramPE[ch0]   DramPE[ch1]   DramPE[ch2]   DramPE[ch3]
-      │              │              │              │
-   Router[0,2] ── Router[1,2] ── Router[2,2] ── Router[3,2] ← DRAM row 2
-      │              │              │              │
-   DramPE[ch4]   DramPE[ch5]   DramPE[ch6]   DramPE[ch7]
-      │              │              │              │
-      └──────────────┴──────────────┴──────────────┘
+TrafficPE[0..7]  ← 8 PEs, ABP (row 0)
+      │
+   Router[0,0] ─ Router[1,0] ─ Router[2,0] ─ ... ─ Router[7,0]  ← Noxim XY mesh
+      │              │              │                     │
+   DramPE[ch0..7]   列直下，1 hop SOUTH                  (row 1)
+      │              │              │                     │
+      └──────────────┴──────────────┴─────────────────────┘
                     DRAMSys (8ch Arbiter, DDR4)
 ```
 
 | Component | File | Description |
 |-----------|------|-------------|
-| TrafficPE | `src/traffic_pe.h/cpp` | SC_THREAD+SC_METHOD, generates flat-address packets, ABP flit injection |
-| Noxim Router | `Noxim Router` | Noxim Router (XY routing, per-cycle reservation+forwarding) |
-| NocMeshWiring | `src/noc_mesh_wiring.h/cpp` | 2×4 mesh creation, signal wiring, PE/DRAM binding |
+| TrafficPE | `src/traffic_pe.h/cpp` | SC_THREAD+SC_METHOD, generated flat-address packets, ABP flit injection |
+| Noxim Router | `/data/zhuo.wang/noxim/src/Router.h` | Noxim Router (XY routing, per-cycle reservation+forwarding) |
+| NocMeshWiring | `src/noc_mesh_wiring.h/cpp` | 2×8 mesh creation, signal wiring, PE/DRAM binding |
 | DramPE | `src/dram_pe.h/cpp` | SC_THREAD+SC_METHOD, ABP flit receive, AT protocol to DRAMSys |
 | DramInterface | `src/DramInterface.h/cpp` | DRAMSys wrapper, b_transport verification path |
 
 **Data flow:**
 ```
-PE(flat addr) → AddrDecoder(channel→dst_tile) → Noxim Packet(18 flits)
-→ ABP injection → XY multi-hop routing → DramPE flit reassembly
-→ nb_transport_fw (AT) → DRAMSys Arbiter → ChannelController
+PE(flat addr) → AddrDecoder(channel→dst_tile) → Noxim Packet(3 flits, 256B)
+→ ABP injection (1 flit/2cyc) → XY 1-hop SOUTH → DramPE flit reassembly
+→ nb_transport_fw (AT, ArbiterFifo w/ END_REQ backpressure) → DRAMSys Arbiter → Controller
 ```
 
 ## Address Modes
@@ -111,31 +105,29 @@ LD_LIBRARY_PATH=/data/zhuo.wang/DRAMSys/install/lib:/data/zhuo.wang/systemc302_v
 
 ## Performance Results
 
-All tests: 0.2ns NoC clock, DDR4-1866, 8 channels (3×4 mesh), AT cycle-accurate DRAM, READ, **128B transactions** (34 flits/packet), 1MB/PE.
+All tests: **2×8 mesh**, 8 PEs, 0.2ns (5 GHz) NoC clock, DDR4-1866 ×64 8ch (119.2 GB/s aggregate),
+READ, **256B/128B flit transactions**, maxInFlight=64, ArbiterFifo with full backpressure.
+**Bus utilization** from DRAMSys controller output is the authoritative bandwidth metric.
 
-All tests: READ, **256B transactions**, 128B flit, DDR4-1866 ×64 (14.9 GB/s/ch = 119.2 GB/s aggregate).
-Bandwidth measured **E2E**: `total_bytes / (last_resp_time - first_req_time)` excluding reset and drain.
-DRAM bus utilization from DRAMSys controller stats.
+### 8ch Performance
 
-### 8ch Performance (0.2ns clock, maxInFlight=256)
+| Mode | Block | Bus util | Aggregate bus BW |
+|:----|:-----:|:--------:|:----------------:|
+| No-interleave 8 PE → 8ch | — | **92.9%** | 110.7 GB/s |
+| Interleave | 256B | **93.4%** | 111.3 GB/s |
+| Interleave | 4KB | **92.4%** | 110.1 GB/s |
+| Interleave | 16KB | **65.5%** | 78.1 GB/s |
 
-| Mode | Block | Total (E2E) | Per-Ch | Bus util |
-|:----|:-----:|:----------:|:------:|:--------:|
-| No-interleave (4ch active) | — | 188.9 GB/s | 47.2 GB/s | **78.7%** |
-| Interleave 8ch | 256B | **455.9 GB/s** | 57.0 GB/s | **94.3%** |
-| Interleave 8ch | 4KB | 432.4 GB/s | 54.1 GB/s | **89.5%** |
-| Interleave 8ch | 16KB | 358.5 GB/s | 44.8 GB/s | **74.4%** |
+With 8 PEs each targeting its own channel (no-interleave), utilization reaches 92.9%—only ~1% below the best interleave case. The 2×8 mesh eliminates the NoC bottleneck that limited previous 4-PE configs.
 
-256B block interleave achieves highest total BW (455.9 GB/s) by maximizing bank-level parallelism. 16KB blocks drop to 358.5 GB/s (−21%) as longer sequential access to the same channel increases row-buffer conflicts.
+### Single-PE Injection Limit
 
-### 1 PE vs 4 PE (8ch interleave 256B blocks)
+| PEs | Bus util | Limiter |
+|:---:|:--------:|:--------|
+| 1 → 8ch interleave | **43.0%** | ABP 2-cycle injection (1 flit/2cyc × 128B = 320 GB/s link, but 1 PE only fills ~43% of DRAM) |
+| 8 → 8ch no-interleave | **92.9%** | DRAM bus saturated |
 
-| PEs | Total (E2E) | Per-Ch | Bus util |
-|:---:|:----------:|:------:|:--------:|
-| 1 | 209.7 GB/s | 26.2 GB/s | **43.0%** |
-| 4 | **455.9 GB/s** | 57.0 GB/s | **94.3%** |
-
-Single PE injects 2 flits (HEAD+BODY) per transaction at ABP 2-cycle rate → 43% DRAM utilization. 4 PEs interleave streams to fill DRAM idle gaps → 94.3%.
+Single PE is injection-limited. 8 PEs collectively saturate the DRAM bus regardless of interleave mode.
 
 ### Data Consistency
 
@@ -145,13 +137,16 @@ CH0..7 ALL PASS  (verified every test run)
 
 ## Noxim Integration
 
-The NoC uses Noxim's cycle-accurate Router model in a **3×4 mesh** configuration:
+The NoC uses Noxim's cycle-accurate Router model in a **2×8 mesh** (8×2 tiles):
 
 - **XY routing** with RANDOM selection
-- **ABP (Alternating Bit Protocol)** flit-level handshake
+- **ABP (Alternating Bit Protocol)** flit-level handshake (2 cycles per flit)
 - **1 virtual channel**, 8-flit buffer depth
-- **128B flit**, **256B transaction** (3 flits: HEAD + BODY + TAIL), 2-cycle ABP
-- **Per-hop backpressure** via ABP ack protocol
+- **128B flit**, **256B transaction** (3 flits: HEAD + BODY + TAIL)
+- **Per-hop backpressure** via ABP ack protocol (full backpressure chain: PE → NoC → DramPE → DRAMSys ArbiterFifo)
+- **0.2ns clock** (5 GHz), 1 flit/2 cycles per PE = 2.5 Gflits/s × 128B = 320 GB/s link BW
+
+8 PEs each connect to one DRAM channel via 1-hop SOUTH. No intermediate routers.
 
 ## Dependencies
 
