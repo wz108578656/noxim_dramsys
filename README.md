@@ -113,34 +113,29 @@ LD_LIBRARY_PATH=/data/zhuo.wang/DRAMSys/install/lib:/data/zhuo.wang/systemc302_v
 
 All tests: 0.2ns NoC clock, DDR4-1866, 8 channels (3×4 mesh), AT cycle-accurate DRAM, READ, **128B transactions** (34 flits/packet), 1MB/PE.
 
-All tests: READ, 128B transactions, DDR4-1866 ×64 (14.9 GB/s/ch = 119.2 GB/s aggregate bus max).
+All tests: READ, **256B transactions**, 128B flit, DDR4-1866 ×64 (14.9 GB/s/ch = 119.2 GB/s aggregate).
 Bandwidth measured **E2E**: `total_bytes / (last_resp_time - first_req_time)` excluding reset and drain.
-DRAM bus utilization from DRAMSys controller stats in brackets.
+DRAM bus utilization from DRAMSys controller stats.
 
-### No-interleave Mode (0.2ns clock)
+### 8ch Performance (0.2ns clock, maxInFlight=256)
 
-| Test | E2E time | Total | Per-Ch | Bus util |
-|:----|:--------:|:-----:|:------:|:--------:|
-| 4 PEs → 4ch | 45 μs | 93.2 GB/s | 23.3 GB/s | **77.9%** |
+| Mode | Block | Total (E2E) | Per-Ch | Bus util |
+|:----|:-----:|:----------:|:------:|:--------:|
+| No-interleave (4ch active) | — | 188.9 GB/s | 47.2 GB/s | **78.7%** |
+| Interleave 8ch | 256B | **455.9 GB/s** | 57.0 GB/s | **94.3%** |
+| Interleave 8ch | 4KB | 432.4 GB/s | 54.1 GB/s | **89.5%** |
+| Interleave 8ch | 16KB | 358.5 GB/s | 44.8 GB/s | **74.4%** |
 
-### Interleave Mode (256B blocks, 8ch)
+256B block interleave achieves highest total BW (455.9 GB/s) by maximizing bank-level parallelism. 16KB blocks drop to 358.5 GB/s (−21%) as longer sequential access to the same channel increases row-buffer conflicts.
 
-| Test | Clock | maxInFlight | E2E time | Total | Per-Ch | Bus util |
-|:----|:-----:|:-----------:|:--------:|:-----:|:------:|:--------:|
-| 4 PEs → 8ch | 0.2ns | 128 | 89 μs | 47.1 GB/s | 5.9 GB/s | **19.2%** |
-| 4 PEs → 8ch | **0.1ns** | **256** | **18.5 μs** | **226.7 GB/s** | 28.3 GB/s | **94.4%** |
+### 1 PE vs 4 PE (8ch interleave 256B blocks)
 
-0.2ns: NoC injection bottleneck (1 flit/cycle per PE at 5 GHz can't feed 8 channels).  
-0.1ns: NoC 2× faster, maxInFlight 2× deeper → DRAM saturates at 94.4%.
+| PEs | Total (E2E) | Per-Ch | Bus util |
+|:---:|:----------:|:------:|:--------:|
+| 1 | 209.7 GB/s | 26.2 GB/s | **43.0%** |
+| 4 | **455.9 GB/s** | 57.0 GB/s | **94.3%** |
 
-### Single-PE vs Multi-PE (8ch interleave 256B, 0.1ns)
-
-| PEs | E2E time | Total | Bus util | Per-Ch |
-|:---:|:--------:|:-----:|:--------:|:------:|
-| 1 | 5.2 μs | 201.6 GB/s | **82.7%** | 25.2 GB/s |
-| 4 | 18.5 μs | 226.7 GB/s | **94.4%** | 28.3 GB/s |
-
-Single PE's injection stream has inter-packet gaps (34-flit packets) that leave DRAM idle 17% of the time. 4 PEs interleave streams, filling gaps → 94.4%.
+Single PE injects 2 flits (HEAD+BODY) per transaction at ABP 2-cycle rate → 43% DRAM utilization. 4 PEs interleave streams to fill DRAM idle gaps → 94.3%.
 
 ### Data Consistency
 
@@ -155,10 +150,8 @@ The NoC uses Noxim's cycle-accurate Router model in a **3×4 mesh** configuratio
 - **XY routing** with RANDOM selection
 - **ABP (Alternating Bit Protocol)** flit-level handshake
 - **1 virtual channel**, 8-flit buffer depth
-- **34 flits per transaction** (1 HEAD + 32 data × 4B + 1 TAIL, 128B)
+- **128B flit**, **256B transaction** (3 flits: HEAD + BODY + TAIL), 2-cycle ABP
 - **Per-hop backpressure** via ABP ack protocol
-
-NoC latency includes multi-hop routing (1-6 hops in 3×4 mesh), router pipeline (reservation + forwarding per cycle), and link contention. A DRAM access from a PE to the farthest channel (ch7) traverses: PE → Router(x,0) → SOUTH → Router(x,1) → SOUTH → Router(x,2) → LOCAL → DramPE.
 
 ## Dependencies
 
