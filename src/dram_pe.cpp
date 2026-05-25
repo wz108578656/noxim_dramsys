@@ -59,6 +59,12 @@ void DramPE::rxProcess()
     if (req_rx.read() == m_current_level_rx)
         return;
 
+    // Backpressure: if too many in-flight, hold ack → Router stalls
+    if (static_cast<int>(m_pending.size()) >= m_maxInFlight ||
+        static_cast<int>(m_rx_pkts.size()) >= 4) {
+        return;  // don't toggle ack, Router retries next cycle
+    }
+
     Flit f = flit_rx.read();
     m_current_level_rx = !m_current_level_rx;
     ack_rx.write(m_current_level_rx);
