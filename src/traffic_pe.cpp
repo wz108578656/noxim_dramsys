@@ -73,7 +73,7 @@ void TrafficPE::run()
         txp.pkt.dst_id  = dst_tile;
         txp.pkt.vc_id   = 0;
         txp.pkt.timestamp = sc_time_stamp().to_seconds();
-        txp.pkt.size    = m_is_read ? 2 : (2 + m_data_len / 4);
+        txp.pkt.size    = 2;  // HEAD + TAIL (128B data embedded in HEAD)
         txp.pkt.flit_left = txp.pkt.size;
 
         m_tx_queue.push(txp);
@@ -113,11 +113,10 @@ Flit TrafficPE::nextFlit(TxPacket& txp, int seq)
     if (f.flit_type == FLIT_TYPE_HEAD) {
         f.payload.data = static_cast<uint32_t>(txp.address & 0xFFFFFFFFULL);
         f.hub_relay_node = static_cast<int>((txp.address >> 32) & 0xFFFF);
-    } else if (f.flit_type == FLIT_TYPE_BODY) {
-        int data_idx = seq - 1;
-        f.payload.data = (data_idx >= 0 && data_idx < 32) ? txp.data[data_idx] : 0;
-        f.hub_relay_node = NOT_VALID;
+        // Pack 128B data into HEAD flit's extended payload
+        memcpy(f.ext_data, txp.data, 128);
     } else {
+        // TAIL: tag only, no data
         f.payload.data = static_cast<uint32_t>(txp.tag);
         f.hub_relay_node = NOT_VALID;
     }
@@ -180,7 +179,7 @@ void TrafficPE::rxProcess()
         if (f.flit_type == FLIT_TYPE_HEAD) {
             m_rx_pkt_len = f.sequence_length;
             m_rx_pkt_seq = 0;
-            if (m_rx_pkt_len > 18) m_rx_pkt_len = 18;
+            if (m_rx_pkt_len > 2) m_rx_pkt_len = 2;
         }
         if (m_rx_pkt_seq < m_rx_pkt_len)
             m_rx_pkt_buf[m_rx_pkt_seq++] = f;

@@ -76,7 +76,7 @@ private:
     sc_core::sc_event m_pendingSlot;
 
     // Rx assembly state
-    Flit m_rx_buf[34];  // max 34 flits for 128B
+    Flit m_rx_buf[2];   // HEAD + TAIL
     int  m_rx_len;
     int  m_rx_seq;
 

@@ -65,7 +65,7 @@ void DramPE::rxProcess()
 
     if (f.flit_type == FLIT_TYPE_HEAD) {
         m_rx_len = f.sequence_length;
-        if (m_rx_len > 34) m_rx_len = 34;
+        if (m_rx_len > 2) m_rx_len = 2;
         m_rx_seq = 0;
     }
 
@@ -88,11 +88,9 @@ void DramPE::rxProcess()
         pkt.data_len = 128;
         memset(pkt.data, 0, sizeof(pkt.data));
 
-        // Extract data from BODY flits
-        if (pkt.is_write) {
-            for (int i = 1; i < m_rx_seq && i <= 32; ++i)
-                pkt.data[i - 1] = m_rx_buf[i].payload.data;
-        }
+        // Extract 128B data from HEAD.ext_data (single-flit payload)
+        if (pkt.is_write)
+            memcpy(pkt.data, head.ext_data, 128);
 
         m_rx_pkts.push(pkt);
         m_rxPktEvent.notify(SC_ZERO_TIME);

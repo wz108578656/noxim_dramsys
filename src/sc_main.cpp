@@ -116,14 +116,14 @@ int sc_main(int argc, char** argv)
     GlobalParams::mesh_dim_x = 4;
     GlobalParams::mesh_dim_y = 3;      // 3 rows: PE + 2 DRAM rows
     GlobalParams::buffer_depth = 8;
-    GlobalParams::flit_size = 32;
+    GlobalParams::flit_size = 1024;  // 128B = 1024 bits
     GlobalParams::n_virtual_channels = 1;
     GlobalParams::routing_algorithm = "XY";
     GlobalParams::selection_strategy = "RANDOM";
     GlobalParams::clock_period_ps = static_cast<int>(args.clockPeriod * 1000);
     GlobalParams::use_winoc = false;
-    GlobalParams::min_packet_size = 34;  // 128B: HEAD+32data+TAIL
-    GlobalParams::max_packet_size = 34;
+    GlobalParams::min_packet_size = 2;   // HEAD + TAIL
+    GlobalParams::max_packet_size = 2;
     GlobalParams::packet_injection_rate = 1.0;
     GlobalParams::probability_of_retransmission = 0.0;
     GlobalParams::simulation_time = args.maxCycles;

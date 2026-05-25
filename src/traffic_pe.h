@@ -108,8 +108,8 @@ private:
     bool m_current_level_tx;
     bool m_current_level_rx;
 
-    // Read-response reassembly (max 34 flits for 128B)
-    Flit m_rx_pkt_buf[34];
+    // Read-response reassembly (HEAD + TAIL = 2 flits)
+    Flit m_rx_pkt_buf[2];
     int  m_rx_pkt_len;
     int  m_rx_pkt_seq;
 
