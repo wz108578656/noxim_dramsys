@@ -62,10 +62,10 @@ void ChannelScheduler::ageProcess()
     if (reset.read()) {
         m_age_cycle = 0;
         m_rr_ptr = 0;
-        for (int i = 0; i < 4; ++i) {
-            m_sig_q_depth[i].write(0);
-            m_sig_q_front_age[i].write(0);
-        }
+        m_sig_q0_depth.write(0); m_sig_q1_depth.write(0);
+        m_sig_q2_depth.write(0); m_sig_q3_depth.write(0);
+        m_sig_q0_age.write(0); m_sig_q1_age.write(0);
+        m_sig_q2_age.write(0); m_sig_q3_age.write(0);
         m_sig_hit.write(false);
         m_sig_aged.write(false);
         return;
@@ -73,11 +73,13 @@ void ChannelScheduler::ageProcess()
 
     m_age_cycle++;
 
-    for (int i = 0; i < 4; ++i) {
-        m_sig_q_depth[i].write(static_cast<int>(m_queues[i].size()));
-        if (!m_queues[i].empty())
-            m_sig_q_front_age[i].write(m_age_cycle - m_queues[i].front().age);
-    }
+    auto qsize = [&](int i) { return static_cast<int>(m_queues[i].size()); };
+    m_sig_q0_depth.write(qsize(0)); m_sig_q1_depth.write(qsize(1));
+    m_sig_q2_depth.write(qsize(2)); m_sig_q3_depth.write(qsize(3));
+    if (!m_queues[0].empty()) m_sig_q0_age.write(m_age_cycle - m_queues[0].front().age);
+    if (!m_queues[1].empty()) m_sig_q1_age.write(m_age_cycle - m_queues[1].front().age);
+    if (!m_queues[2].empty()) m_sig_q2_age.write(m_age_cycle - m_queues[2].front().age);
+    if (!m_queues[3].empty()) m_sig_q3_age.write(m_age_cycle - m_queues[3].front().age);
 }
 
 // ---------------------------------------------------------------------------
@@ -154,10 +156,14 @@ bool ChannelScheduler::arbitrate(ReqEntry& req)
         cand[n_cand].age  = front.age;
         n_cand++;
 
-        // Update VCD front info
-        m_sig_q_front_bg[i].write(AddrDecode::bg(front.address));
-        m_sig_q_front_bank[i].write(AddrDecode::bank(front.address));
-        m_sig_q_front_age[i].write(front.age);
+        // Update VCD front info (per-queue)
+        auto wr = [&](int qi, int bg, int ba, int ag) {
+            if (qi==0) { m_sig_q0_bg.write(bg); m_sig_q0_bank.write(ba); m_sig_q0_age.write(ag); }
+            if (qi==1) { m_sig_q1_bg.write(bg); m_sig_q1_bank.write(ba); m_sig_q1_age.write(ag); }
+            if (qi==2) { m_sig_q2_bg.write(bg); m_sig_q2_bank.write(ba); m_sig_q2_age.write(ag); }
+            if (qi==3) { m_sig_q3_bg.write(bg); m_sig_q3_bank.write(ba); m_sig_q3_age.write(ag); }
+        };
+        wr(i, AddrDecode::bg(front.address), AddrDecode::bank(front.address), front.age);
     }
 
     if (n_cand == 0) return false;
@@ -249,12 +255,22 @@ bool ChannelScheduler::arbitrate(ReqEntry& req)
 // ---------------------------------------------------------------------------
 void ChannelScheduler::traceAll(sc_core::sc_trace_file* tf) const
 {
-    for (int i = 0; i < 4; ++i) {
-        sc_core::sc_trace(tf, m_sig_q_depth[i], m_sig_q_depth[i].name());
-        sc_core::sc_trace(tf, m_sig_q_front_bg[i], m_sig_q_front_bg[i].name());
-        sc_core::sc_trace(tf, m_sig_q_front_bank[i], m_sig_q_front_bank[i].name());
-        sc_core::sc_trace(tf, m_sig_q_front_age[i], m_sig_q_front_age[i].name());
-    }
+    sc_core::sc_trace(tf, m_sig_q0_depth, m_sig_q0_depth.name());
+    sc_core::sc_trace(tf, m_sig_q0_bg, m_sig_q0_bg.name());
+    sc_core::sc_trace(tf, m_sig_q0_bank, m_sig_q0_bank.name());
+    sc_core::sc_trace(tf, m_sig_q0_age, m_sig_q0_age.name());
+    sc_core::sc_trace(tf, m_sig_q1_depth, m_sig_q1_depth.name());
+    sc_core::sc_trace(tf, m_sig_q1_bg, m_sig_q1_bg.name());
+    sc_core::sc_trace(tf, m_sig_q1_bank, m_sig_q1_bank.name());
+    sc_core::sc_trace(tf, m_sig_q1_age, m_sig_q1_age.name());
+    sc_core::sc_trace(tf, m_sig_q2_depth, m_sig_q2_depth.name());
+    sc_core::sc_trace(tf, m_sig_q2_bg, m_sig_q2_bg.name());
+    sc_core::sc_trace(tf, m_sig_q2_bank, m_sig_q2_bank.name());
+    sc_core::sc_trace(tf, m_sig_q2_age, m_sig_q2_age.name());
+    sc_core::sc_trace(tf, m_sig_q3_depth, m_sig_q3_depth.name());
+    sc_core::sc_trace(tf, m_sig_q3_bg, m_sig_q3_bg.name());
+    sc_core::sc_trace(tf, m_sig_q3_bank, m_sig_q3_bank.name());
+    sc_core::sc_trace(tf, m_sig_q3_age, m_sig_q3_age.name());
     sc_core::sc_trace(tf, m_sig_out_addr, m_sig_out_addr.name());
     sc_core::sc_trace(tf, m_sig_out_row, m_sig_out_row.name());
     sc_core::sc_trace(tf, m_sig_out_bank, m_sig_out_bank.name());

@@ -94,18 +94,30 @@ private:
     int m_age_cycle;
     sc_core::sc_event m_reqEvent;
 
-    // VCD trace signals
-    sc_signal<int>      m_sig_q_depth[4];
-    sc_signal<int>      m_sig_q_front_bg[4];
-    sc_signal<int>      m_sig_q_front_bank[4];
-    sc_signal<int>      m_sig_q_front_age[4];
-    sc_signal<uint64_t> m_sig_out_addr;
-    sc_signal<int>      m_sig_out_row;
-    sc_signal<int>      m_sig_out_bank;
-    sc_signal<int>      m_sig_out_bg;
-    sc_signal<int>      m_sig_out_src_pe;
-    sc_signal<bool>     m_sig_hit;
-    sc_signal<bool>     m_sig_aged;
+    // VCD trace signals (named for meaningful waveform display)
+    sc_signal<int>      m_sig_q0_depth{"q0_depth"};
+    sc_signal<int>      m_sig_q0_bg{"q0_bg"};
+    sc_signal<int>      m_sig_q0_bank{"q0_bank"};
+    sc_signal<int>      m_sig_q0_age{"q0_age"};
+    sc_signal<int>      m_sig_q1_depth{"q1_depth"};
+    sc_signal<int>      m_sig_q1_bg{"q1_bg"};
+    sc_signal<int>      m_sig_q1_bank{"q1_bank"};
+    sc_signal<int>      m_sig_q1_age{"q1_age"};
+    sc_signal<int>      m_sig_q2_depth{"q2_depth"};
+    sc_signal<int>      m_sig_q2_bg{"q2_bg"};
+    sc_signal<int>      m_sig_q2_bank{"q2_bank"};
+    sc_signal<int>      m_sig_q2_age{"q2_age"};
+    sc_signal<int>      m_sig_q3_depth{"q3_depth"};
+    sc_signal<int>      m_sig_q3_bg{"q3_bg"};
+    sc_signal<int>      m_sig_q3_bank{"q3_bank"};
+    sc_signal<int>      m_sig_q3_age{"q3_age"};
+    sc_signal<uint64_t> m_sig_out_addr{"out_addr"};
+    sc_signal<int>      m_sig_out_row{"out_row"};
+    sc_signal<int>      m_sig_out_bank{"out_bank"};
+    sc_signal<int>      m_sig_out_bg{"out_bg"};
+    sc_signal<int>      m_sig_out_src_pe{"out_src_pe"};
+    sc_signal<bool>     m_sig_hit{"hit"};
+    sc_signal<bool>     m_sig_aged{"aged"};
 };
 
 #endif // CHANNEL_SCHEDULER_H
