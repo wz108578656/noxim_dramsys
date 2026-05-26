@@ -22,7 +22,7 @@ struct Args {
     string dramConfig;
     int    nocTx         = 1000;
     int    numPEs        = 4;
-    double clockPeriod   = 1.0;
+    double clockPeriod   = 1.0;  // 1 GHz default
     bool   modeA         = false;
     string addrMode      = "nointerleave";
     int    blockSize     = 4096;

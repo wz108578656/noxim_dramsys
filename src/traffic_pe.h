@@ -43,7 +43,7 @@ public:
 
     TrafficPE(sc_module_name name, int pe_id, int num_tx,
               uint64_t base_addr, double inj_rate_ns, bool is_read,
-              int data_len, double clock_period = 0.2);
+              int data_len, double clock_period = 1.0);
 
     void setAddrMode(AddrDecoder::Mode mode, int block_size = 4096);
     void setBaseAddr(uint64_t base) { m_base_addr = base; }

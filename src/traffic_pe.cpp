@@ -53,12 +53,12 @@ void TrafficPE::run()
         for (int w = 0; w < 32; ++w)
             req.data[w] = pattern + w;
 
-        // Send through crossbar → scheduler → DramPE (max 1 attempt/cycle)
+        // Send through crossbar → scheduler (1 attempt per cycle)
         if (m_xbar) {
-            while (!m_xbar->route(m_pe_id, req)) {
-                wait(sc_time(m_clock_period, SC_NS));  // wait one cycle, retry
-            }
+            while (!m_xbar->route(m_pe_id, req))
+                wait(sc_time(m_clock_period, SC_NS));
         }
+        wait(sc_time(m_clock_period, SC_NS));  // 1 cycle between transactions
 
         m_tx_sent++;
 
