@@ -111,14 +111,19 @@ READ, **256B/128B flit transactions**, maxInFlight=64, ArbiterFifo with full bac
 
 ### 2×8 Mesh Performance (READ, 256B, 0.2ns, maxInFlight=16)
 
-| Mode | Bus util | Aggregate bus BW | Note |
-|:----|:--------:|:----------------:|:-----|
-| No-interleave 8 PE → 8ch | **79.4%** | 94.6 GB/s | Per-channel 1:1, ~16 deep pipeline |
-| Interleave 256B | **91.0%** | 108.5 GB/s | Best interleave, full 8ch |
-| Interleave 4KB | **84.8%** | 101.1 GB/s | Row locality helps |
-| Interleave 16KB | **51.0%** | 60.8 GB/s | Refresh + long sequential |
+| DRAM | Mode | Bus util | Total BW | Note |
+|:----|:----|:--------:|:--------:|:-----|
+| DDR4-1866 | No-interleave | **79.4%** | 94.6 GB/s | 8 PE → 8ch |
+| DDR4-1866 | Interleave 256B | **91.0%** | 108.5 GB/s | Best interleave |
+| DDR4-1866 | Interleave 4KB | **84.8%** | 101.1 GB/s | |
+| DDR4-1866 | Interleave 16KB | **51.0%** | 60.8 GB/s | |
+| **DDR4-4000** | No-interleave | **49.0%** | 125.5 GB/s | NoC limited |
+| **DDR4-4000** | **Interleave 256B** | **71.2%** | **182.2 GB/s** | |
+| **DDR4-4000** | Interleave 256B + 0.1ns | **85.2%** | 218.2 GB/s | |
 
-### Single-PE Limit
+DDR4-4000 doubles per-channel BW (14.9→32 GB/s), shifting bottleneck from DRAM to NoC. At 0.2ns, the 8 PEs' ABP-limited injection can't fully saturate the faster DRAM. Increasing NoC to 0.1ns recovers utilization to 85.2%.
+
+### Single-PE Limit (DDR4-1866)
 
 | PEs | Mode | Bus util |
 |:---:|:----|:--------:|
