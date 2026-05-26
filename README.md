@@ -109,25 +109,25 @@ All tests: **2×8 mesh**, 8 PEs, 0.2ns (5 GHz) NoC clock, DDR4-1866 ×64 8ch (11
 READ, **256B/128B flit transactions**, maxInFlight=64, ArbiterFifo with full backpressure.
 **Bus utilization** from DRAMSys controller output is the authoritative bandwidth metric.
 
-### 2×8 Mesh Performance (READ, 256B, 0.2ns, maxInFlight=16)
+### 2×8 Mesh Performance (READ, 256B, 0.2ns, maxInFlight=64, RequestBufferSize=64)
 
 | DRAM | Mode | Bus util | Total BW | Note |
 |:----|:----|:--------:|:--------:|:-----|
-| DDR4-1866 | No-interleave | **79.4%** | 94.6 GB/s | 8 PE → 8ch |
-| DDR4-1866 | Interleave 256B | **91.0%** | 108.5 GB/s | Best interleave |
-| DDR4-1866 | Interleave 4KB | **84.8%** | 101.1 GB/s | |
-| DDR4-1866 | Interleave 16KB | **51.0%** | 60.8 GB/s | |
-| **DDR4-4000** | No-interleave | **49.0%** | 125.5 GB/s | NoC limited |
-| **DDR4-4000** | **Interleave 256B** | **71.2%** | **182.2 GB/s** | |
-| **DDR4-4000** | Interleave 256B + 0.1ns | **85.2%** | 218.2 GB/s | |
+| DDR4-1866 | No-interleave | **92.9%** | 110.7 GB/s | 8 PE → 8ch, full saturation |
+| DDR4-1866 | Interleave 256B | **93.4%** | 111.3 GB/s | Best interleave |
+| **DDR4-4000** | No-interleave | **81.0%** | **207.4 GB/s** | Deeper buffer boosts row-hit |
+| **DDR4-4000** | Interleave 256B | **71.8%** | 183.8 GB/s | Mixed rows limit benefit |
+| **DDR4-4000** | Interleave 4KB | **65.5%** | 167.6 GB/s | |
+| **DDR4-4000** | Interleave 16KB | **39.0%** | 99.8 GB/s | |
 
-DDR4-4000 doubles per-channel BW (14.9→32 GB/s), shifting bottleneck from DRAM to NoC. At 0.2ns, the 8 PEs' ABP-limited injection can't fully saturate the faster DRAM. Increasing NoC to 0.1ns recovers utilization to 85.2%.
+DDR4-4000 per-channel BW = 32 GB/s (vs 14.9 for DDR4-1866). No-interleave gains the most from deeper buffering (81.0%) because 64 consecutive requests to the same channel enable row hits.
 
-### Single-PE Limit (DDR4-1866)
+### Single-PE Limit
 
-| PEs | Mode | Bus util |
-|:---:|:----|:--------:|
-| 1 | 8ch interleave 256B | **43.0%** |
+| DRAM | PEs | Mode | Bus util |
+|:----|:---:|:----|:--------:|
+| DDR4-1866 | 1 | 8ch interleave 256B | **43.0%** |
+| DDR4-4000 | 1 | 8ch interleave 256B | **20.0%** |
 
 Single PE is injection-limited. 8 PEs collectively saturate the DRAM bus regardless of interleave mode.
 
