@@ -62,7 +62,7 @@ maxInFlight=64, Arbiter::Reorder. Bus utilization from DRAMSys controller output
 
 | Arb mode | Row pattern | Bus util | Aggregate BW | E2E time |
 |:---------|:------------|:--------:|:------------:|:--------:|
-| RR/ROW-HIT | Same row | **91.4%** | 109.1 GB/s | 9500 ns |
+| RR-ONLY / ROW-HIT | Same row | **91.4%** | 109.1 GB/s | 9500 ns |
 | RR-ONLY | **Row-staggered** | 73.1% | 87.3 GB/s | 11900 ns |
 | **ROW-HIT** | **Row-staggered** | **85.2%** | **101.7 GB/s** | **10200 ns** |
 
