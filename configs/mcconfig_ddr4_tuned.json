@@ -10,7 +10,7 @@
         "RefreshMaxPostponed": 0,
         "RefreshMaxPulledin": 0,
         "PowerDownPolicy": "NoPowerDown",
-        "Arbiter": "Simple",
+        "Arbiter": "Reorder",
         "MaxActiveTransactions": 128,
         "RefreshManagement": false,
         "BlockingReadDelay": 53,
