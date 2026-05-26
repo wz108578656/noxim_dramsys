@@ -3,7 +3,7 @@
         "PagePolicy": "Open",
         "Scheduler": "FrFcfs",
         "SchedulerBuffer": "Bankwise",
-        "RequestBufferSize": 16,
+        "RequestBufferSize": 64,
         "CmdMux": "Oldest",
         "RespQueue": "Fifo",
         "RefreshPolicy": "AllBank",
