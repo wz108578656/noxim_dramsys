@@ -200,15 +200,13 @@ tlm_sync_enum DramPE::nb_transport_bw(int /*tag*/,
         if (!m_pending.empty()) {
             m_completed++;
             m_bytes += trans.get_data_length();
+            // VCD: response info (separate from req_ signals)
             uint64_t resp_addr = trans.get_address();
-            uint64_t row = (resp_addr >> 19) & 0x7FFF;
-            int bank = static_cast<int>((resp_addr >> 17) & 0x3);
-            int bg   = static_cast<int>((resp_addr >> 15) & 0x3);
-            int cmd  = (trans.get_command() == TLM_WRITE_COMMAND) ? 0 : 1;
-            int ch   = m_channel;
-            cout << "  [DramPE" << ch << " resp] addr=" << hex << resp_addr << dec
-                 << " row=" << row << " bank=" << bank << " bg=" << bg
-                 << " cmd=" << cmd << " len=" << trans.get_data_length() << endl;
+            m_sig_resp_addr.write(resp_addr);
+            m_sig_resp_row.write((resp_addr >> 19) & 0x7FFF);
+            m_sig_resp_bank.write(static_cast<int>((resp_addr >> 17) & 0x3));
+            m_sig_resp_bg.write(static_cast<int>((resp_addr >> 15) & 0x3));
+            m_sig_resp_cmd.write(trans.get_command() == TLM_WRITE_COMMAND ? 0 : 1);
 
             delete[] trans.get_data_ptr();
             m_pending.pop_front();
@@ -237,4 +235,9 @@ void DramPE::traceAll(sc_core::sc_trace_file* tf) const
     sc_core::sc_trace(tf, m_sig_req_bank, m_sig_req_bank.name());
     sc_core::sc_trace(tf, m_sig_req_bg, m_sig_req_bg.name());
     sc_core::sc_trace(tf, m_sig_req_cmd, m_sig_req_cmd.name());
+    sc_core::sc_trace(tf, m_sig_resp_addr, m_sig_resp_addr.name());
+    sc_core::sc_trace(tf, m_sig_resp_row, m_sig_resp_row.name());
+    sc_core::sc_trace(tf, m_sig_resp_bank, m_sig_resp_bank.name());
+    sc_core::sc_trace(tf, m_sig_resp_bg, m_sig_resp_bg.name());
+    sc_core::sc_trace(tf, m_sig_resp_cmd, m_sig_resp_cmd.name());
 }

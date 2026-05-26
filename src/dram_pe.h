@@ -102,6 +102,11 @@ private:
     sc_signal<int>      m_sig_req_bank{"req_bank"};
     sc_signal<int>      m_sig_req_bg{"req_bg"};
     sc_signal<int>      m_sig_req_cmd{"req_cmd"};  // 0=WR, 1=RD
+    sc_signal<uint64_t> m_sig_resp_addr{"resp_addr"};
+    sc_signal<uint64_t> m_sig_resp_row{"resp_row"};
+    sc_signal<int>      m_sig_resp_bank{"resp_bank"};
+    sc_signal<int>      m_sig_resp_bg{"resp_bg"};
+    sc_signal<int>      m_sig_resp_cmd{"resp_cmd"};
 };
 
 #endif // DRAM_PE_H
