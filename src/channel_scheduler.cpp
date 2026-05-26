@@ -116,7 +116,28 @@ void ChannelScheduler::updateBankState(const ReqEntry& req)
 // ---------------------------------------------------------------------------
 bool ChannelScheduler::arbitrate(ReqEntry& req)
 {
-    // Scan all queues for front candidates
+    // RR_ONLY mode: simple round-robin, no row-hit tracking
+    if (m_arb_mode == RR_ONLY) {
+        for (int c = 0; c < 4; ++c) {
+            int port = (m_rr_ptr + c) % 4;
+            if (m_queues[port].empty()) continue;
+            req = m_queues[port].front();
+            m_queues[port].pop();
+            m_rr_ptr = (port + 1) % 4;
+            m_sig_hit.write(false);
+            m_sig_aged.write(false);
+            m_sig_out_addr.write(req.address);
+            m_sig_out_row.write(AddrDecode::row(req.address));
+            m_sig_out_bank.write(AddrDecode::bank(req.address));
+            m_sig_out_bg.write(AddrDecode::bg(req.address));
+            m_sig_out_src_pe.write(req.src_pe);
+            updateBankState(req);
+            return true;
+        }
+        return false;
+    }
+
+    // ROW_HIT mode: scan all queues for front candidates
     struct Candidate {
         int  port;
         bool hit;

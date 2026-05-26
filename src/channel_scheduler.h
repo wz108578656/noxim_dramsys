@@ -67,6 +67,8 @@ public:
     void notifyReq() { m_reqEvent.notify(SC_ZERO_TIME); }
     sc_core::sc_event& reqEvent() { return m_reqEvent; }
 
+    enum ArbMode { RR_ONLY = 0, ROW_HIT = 1 };
+    void setArbMode(ArbMode m) { m_arb_mode = m; }
     void setAgeThreshold(int t) { m_age_threshold = t; }
     int  channel() const { return m_channel; }
     bool hasPending() const;
@@ -83,6 +85,7 @@ private:
 
     int m_channel;
     int m_age_threshold;
+    ArbMode m_arb_mode = ROW_HIT;
 
     std::queue<ReqEntry> m_queues[4];
     BankRowState m_bank_state[AddrDecode::NUM_BG][AddrDecode::NUM_BANK];

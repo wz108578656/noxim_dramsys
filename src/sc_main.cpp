@@ -28,6 +28,7 @@ struct Args {
     int    blockSize     = 4096;
     int    txSize        = 256;
     int    ageThreshold  = 16;
+    string arbMode       = "rowhit";
     bool   is_read       = false;
     int    maxCycles     = 100000;
     string vcdFile;
@@ -45,6 +46,7 @@ static Args parseArgs(int argc, char** argv)
         else if (arg == "--block-size" && i + 1 < argc) args.blockSize = atoi(argv[++i]);
         else if (arg == "--tx-size" && i + 1 < argc) args.txSize = atoi(argv[++i]);
         else if (arg == "--age-threshold" && i + 1 < argc) args.ageThreshold = atoi(argv[++i]);
+        else if (arg == "--arb-mode" && i + 1 < argc) args.arbMode = argv[++i];
         else if (arg == "--noc-mode-a") args.modeA = true;
         else if (arg == "--noc-read") args.is_read = true;
         else if (arg == "--max-cycles" && i + 1 < argc) args.maxCycles = atoi(argv[++i]);
@@ -113,6 +115,8 @@ int sc_main(int argc, char** argv)
             ch, args.ageThreshold);
         sched[ch]->clock(clk);
         sched[ch]->reset(rst);
+        if (args.arbMode == "rronly")
+            sched[ch]->setArbMode(ChannelScheduler::RR_ONLY);
         xbar.bindScheduler(ch, sched[ch]);
     }
 
