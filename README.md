@@ -58,16 +58,18 @@ PE → ReqEntry → 4×8 Xbar (addr→ch) → ChannelScheduler[ch] (arbitrate)
 All tests: READ, 256B, 0.2ns clock, DDR4-1866 ×64 8ch (119.2 GB/s aggregate),
 maxInFlight=64, Arbiter::Reorder. Bus utilization from DRAMSys controller output.
 
-### 8ch Performance
+### 8ch Performance (Interleave 256B)
 
-| Arb mode | E2E time | Bus util | Aggregate BW |
-|:---------|:--------:|:--------:|:------------:|
-| RR-ONLY | 9100 ns | **95.4%** | 113.7 GB/s |
-| ROW-HIT | 9400 ns | **92.3%** | 110.0 GB/s |
+| Arb mode | Row pattern | Bus util | Aggregate BW |
+|:---------|:------------|:--------:|:------------:|
+| RR-ONLY | Same row | **95.4%** | 113.7 GB/s |
+| ROW-HIT | Same row | 92.3% | 110.0 GB/s |
+| RR-ONLY | **Row-staggered** | 74.4% | 88.8 GB/s |
+| **ROW-HIT** | **Row-staggered** | **94.3%** | **112.6 GB/s** |
 
-RR-ONLY outperforms ROW-HIT because DRAMSys's internal FrFcfs + Bankwise scheduler already optimizes row hits. The scheduler shadow tracking adds no value.
+Key finding: **ROW-HIT matters when PEs access different rows on the same channel.** With same-row traffic, RR is sufficient and slightly faster. With row-staggered traffic (realistic workload), ROW-HIT outperforms RR by **+27%** by grouping same-row requests to minimize page activations.
 
-No-interleave achieves the same utilization since each PE targets its dedicated channel. The 4×8 crossbar + ChannelScheduler eliminates NoC bottlenecks.
+Row-staggered test: `--base-shift 3` (each PE base shifted by 512KB = 1 row stride).
 
 ### Arbiter Comparison
 
