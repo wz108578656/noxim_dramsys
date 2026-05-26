@@ -28,6 +28,7 @@ struct Args {
     int    blockSize     = 4096;
     int    txSize        = 256;
     int    ageThreshold  = 16;
+    int    baseShift     = 0;
     string arbMode       = "rowhit";
     bool   is_read       = false;
     int    maxCycles     = 100000;
@@ -47,6 +48,7 @@ static Args parseArgs(int argc, char** argv)
         else if (arg == "--tx-size" && i + 1 < argc) args.txSize = atoi(argv[++i]);
         else if (arg == "--age-threshold" && i + 1 < argc) args.ageThreshold = atoi(argv[++i]);
         else if (arg == "--arb-mode" && i + 1 < argc) args.arbMode = argv[++i];
+        else if (arg == "--base-shift" && i + 1 < argc) args.baseShift = atoi(argv[++i]);
         else if (arg == "--noc-mode-a") args.modeA = true;
         else if (arg == "--noc-read") args.is_read = true;
         else if (arg == "--max-cycles" && i + 1 < argc) args.maxCycles = atoi(argv[++i]);
@@ -126,7 +128,7 @@ int sc_main(int argc, char** argv)
     for (int pe = 0; pe < 4; ++pe) {
         uint64_t base;
         if (interleave) {
-            base = static_cast<uint64_t>(pe) * 0x10000;
+            base = static_cast<uint64_t>(pe) * (0x10000ULL << args.baseShift);
         } else if (args.modeA) {
             base = 0;
         } else {
