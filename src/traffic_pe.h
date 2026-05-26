@@ -119,7 +119,9 @@ private:
     sc_signal<uint64_t> m_sig_addr{"flit_addr"};
     sc_signal<int>      m_sig_flit_type{"flit_type"};
     sc_signal<bool>     m_sig_abp_tx{"abp_tx"};
+    sc_signal<bool>     m_sig_abp_rx{"abp_rx"};
     sc_signal<uint64_t> m_sig_rx_comp{"rx_completed"};
+    sc_signal<int>      m_sig_rx_seq{"rx_seq"};
 };
 
 #endif // TRAFFIC_PE_H

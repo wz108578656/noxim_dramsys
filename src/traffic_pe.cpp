@@ -77,7 +77,6 @@ void TrafficPE::run()
         txp.pkt.flit_left = txp.pkt.size;
 
         m_tx_queue.push(txp);
-        m_tx_sent++;
 
         if (m_inj_interval != SC_ZERO_TIME)
             wait(m_inj_interval);
@@ -156,8 +155,10 @@ void TrafficPE::txProcess()
         m_current_level_tx = !m_current_level_tx;
         req_tx.write(m_current_level_tx);
         txp.pkt.flit_left--;
-        if (txp.pkt.flit_left == 0)
+        if (txp.pkt.flit_left == 0) {
             m_tx_queue.pop();
+            m_tx_sent++;                // 实际发出后才计数
+        }
 
         // VCD trace
         m_sig_queue_depth.write(static_cast<int>(m_tx_queue.size()));
@@ -196,6 +197,8 @@ void TrafficPE::rxProcess()
             m_rx_pkt_seq = 0;
         }
         m_current_level_rx = !m_current_level_rx;
+        m_sig_abp_rx.write(m_current_level_rx);
+        m_sig_rx_seq.write(m_rx_pkt_seq);
     }
     ack_rx.write(m_current_level_rx);
 }
@@ -210,5 +213,7 @@ void TrafficPE::traceAll(sc_core::sc_trace_file* tf) const
     sc_core::sc_trace(tf, m_sig_addr, m_sig_addr.name());
     sc_core::sc_trace(tf, m_sig_flit_type, m_sig_flit_type.name());
     sc_core::sc_trace(tf, m_sig_abp_tx, m_sig_abp_tx.name());
+    sc_core::sc_trace(tf, m_sig_abp_rx, m_sig_abp_rx.name());
     sc_core::sc_trace(tf, m_sig_rx_comp, m_sig_rx_comp.name());
+    sc_core::sc_trace(tf, m_sig_rx_seq, m_sig_rx_seq.name());
 }
