@@ -191,6 +191,7 @@ void TrafficPE::rxProcess()
             m_rx_pkt_buf[m_rx_pkt_seq++] = f;
         if (f.flit_type == FLIT_TYPE_TAIL) {
             m_rx_completed++;
+            m_sig_rx_comp.write(m_rx_completed);
             m_rx_pkt_len = 0;
             m_rx_pkt_seq = 0;
         }
@@ -209,4 +210,5 @@ void TrafficPE::traceAll(sc_core::sc_trace_file* tf) const
     sc_core::sc_trace(tf, m_sig_addr, m_sig_addr.name());
     sc_core::sc_trace(tf, m_sig_flit_type, m_sig_flit_type.name());
     sc_core::sc_trace(tf, m_sig_abp_tx, m_sig_abp_tx.name());
+    sc_core::sc_trace(tf, m_sig_rx_comp, m_sig_rx_comp.name());
 }
