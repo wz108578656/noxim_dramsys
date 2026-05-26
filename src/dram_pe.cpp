@@ -155,6 +155,14 @@ void DramPE::process()
         uint64_t dramsys_addr = (low & ~(0x7ULL << 12))       // clear ch bits (3bit for 8ch)
                               | (static_cast<uint64_t>(m_channel) << 12);
         trans->set_address(dramsys_addr);
+
+        // VCD trace: request info from DRAMSys address
+        m_sig_req_addr.write(dramsys_addr);
+        m_sig_req_row.write((dramsys_addr >> 19) & 0x7FFF);
+        m_sig_req_bank.write(static_cast<int>((dramsys_addr >> 17) & 0x3));
+        m_sig_req_bg.write(static_cast<int>((dramsys_addr >> 15) & 0x3));
+        m_sig_req_cmd.write(pkt.is_write ? 0 : 1);
+
         trans->set_data_length(pkt.data_len);
         trans->set_byte_enable_ptr(nullptr);
         trans->set_byte_enable_length(0);
@@ -192,6 +200,16 @@ tlm_sync_enum DramPE::nb_transport_bw(int /*tag*/,
         if (!m_pending.empty()) {
             m_completed++;
             m_bytes += trans.get_data_length();
+            uint64_t resp_addr = trans.get_address();
+            uint64_t row = (resp_addr >> 19) & 0x7FFF;
+            int bank = static_cast<int>((resp_addr >> 17) & 0x3);
+            int bg   = static_cast<int>((resp_addr >> 15) & 0x3);
+            int cmd  = (trans.get_command() == TLM_WRITE_COMMAND) ? 0 : 1;
+            int ch   = m_channel;
+            cout << "  [DramPE" << ch << " resp] addr=" << hex << resp_addr << dec
+                 << " row=" << row << " bank=" << bank << " bg=" << bg
+                 << " cmd=" << cmd << " len=" << trans.get_data_length() << endl;
+
             delete[] trans.get_data_ptr();
             m_pending.pop_front();
             m_sig_completed.write(m_completed);
@@ -214,4 +232,9 @@ void DramPE::traceAll(sc_core::sc_trace_file* tf) const
     sc_core::sc_trace(tf, m_sig_completed, m_sig_completed.name());
     sc_core::sc_trace(tf, m_sig_bytes, m_sig_bytes.name());
     sc_core::sc_trace(tf, m_sig_rx_seq, m_sig_rx_seq.name());
+    sc_core::sc_trace(tf, m_sig_req_addr, m_sig_req_addr.name());
+    sc_core::sc_trace(tf, m_sig_req_row, m_sig_req_row.name());
+    sc_core::sc_trace(tf, m_sig_req_bank, m_sig_req_bank.name());
+    sc_core::sc_trace(tf, m_sig_req_bg, m_sig_req_bg.name());
+    sc_core::sc_trace(tf, m_sig_req_cmd, m_sig_req_cmd.name());
 }

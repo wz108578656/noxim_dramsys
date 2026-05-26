@@ -97,6 +97,11 @@ private:
     sc_signal<uint64_t> m_sig_completed{"completed"};
     sc_signal<uint64_t> m_sig_bytes{"bytes"};
     sc_signal<int>      m_sig_rx_seq{"rx_seq"};
+    sc_signal<uint64_t> m_sig_req_addr{"req_addr"};
+    sc_signal<uint64_t> m_sig_req_row{"req_row"};
+    sc_signal<int>      m_sig_req_bank{"req_bank"};
+    sc_signal<int>      m_sig_req_bg{"req_bg"};
+    sc_signal<int>      m_sig_req_cmd{"req_cmd"};  // 0=WR, 1=RD
 };
 
 #endif // DRAM_PE_H
