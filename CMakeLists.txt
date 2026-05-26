@@ -114,11 +114,11 @@ set(DRAMSYS_UTILS_INC "${DRAMSYS_ROOT}/build/_deps/dramutils-src/include")
 # Application (NoC Crossbar + DRAMSys co-simulation)
 # ============================================================================
 file(GLOB NOXIM_DRAMSYS_SRCS
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/NoximGlobals.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/DramInterface.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/traffic_pe.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/dram_pe.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/noc_mesh_wiring.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/channel_scheduler.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/xbar_4x8.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/sc_main.cpp"
 )
 
@@ -127,7 +127,7 @@ add_executable(noxim_dramsys ${NOXIM_DRAMSYS_SRCS})
 target_include_directories(noxim_dramsys PRIVATE
     ${NOXIM_SRC}
     ${NOXIM_ROOT}
-    SYSTEM ${CMAKE_CURRENT_SOURCE_DIR}/SYSTEM   # SC 3.0.2 tlm_utils (override DRAMSys _deps version)
+    SYSTEM ${CMAKE_CURRENT_SOURCE_DIR}/SYSTEM
     ${DRAMSYS_INCLUDE}
     ${DRAMSYS_EXTRA_INC}
     ${DRAMSYS_UTILS_INC}
@@ -138,13 +138,8 @@ target_compile_definitions(noxim_dramsys PRIVATE
     DRAMSYS_RESOURCE_DIR="${DRAMSYS_RESOURCE_DIR}"
 )
 
-target_link_options(noxim_dramsys PRIVATE
-    "-Wl,--whole-archive,$<TARGET_FILE:noxim>,--no-whole-archive"
-)
-
 target_link_libraries(noxim_dramsys
     PRIVATE
-    noxim
     dramsys
     drampwr
     sqlite3
