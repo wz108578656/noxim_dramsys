@@ -29,6 +29,7 @@ struct Args {
     int    txSize        = 256;
     int    ageThreshold  = 16;
     int    baseShift     = 0;
+    int    maxQdepth     = 16;
     string arbMode       = "rowhit";
     bool   is_read       = false;
     int    maxCycles     = 100000;
@@ -48,6 +49,7 @@ static Args parseArgs(int argc, char** argv)
         else if (arg == "--tx-size" && i + 1 < argc) args.txSize = atoi(argv[++i]);
         else if (arg == "--age-threshold" && i + 1 < argc) args.ageThreshold = atoi(argv[++i]);
         else if (arg == "--arb-mode" && i + 1 < argc) args.arbMode = argv[++i];
+        else if (arg == "--max-qdepth" && i + 1 < argc) args.maxQdepth = atoi(argv[++i]);
         else if (arg == "--base-shift" && i + 1 < argc) args.baseShift = atoi(argv[++i]);
         else if (arg == "--noc-mode-a") args.modeA = true;
         else if (arg == "--noc-read") args.is_read = true;
@@ -61,6 +63,7 @@ static Args parseArgs(int argc, char** argv)
                  << "  --block-size <N>      Interleave block size\n"
                  << "  --tx-size <N>         Transaction size (default 256)\n"
                  << "  --age-threshold <N>   Anti-starvation age (default 16)\n"
+                 << "  --max-qdepth <N>      Scheduler queue depth per PE (default 16)\n"
                  << "  --noc-mode-a          Force all traffic to channel 0\n"
                  << "  --noc-read            READ transactions\n"
                  << "  --max-cycles <N>      Max cycles\n"
@@ -114,7 +117,7 @@ int sc_main(int argc, char** argv)
     for (int ch = 0; ch < NUM_CH; ++ch) {
         sched[ch] = new ChannelScheduler(
             sc_module_name(("SchedCh" + to_string(ch)).c_str()),
-            ch, args.ageThreshold);
+            ch, args.ageThreshold, args.maxQdepth);
         sched[ch]->clock(clk);
         sched[ch]->reset(rst);
         if (args.arbMode == "rronly")
@@ -137,7 +140,8 @@ int sc_main(int argc, char** argv)
 
         auto* p = new TrafficPE(
             sc_module_name(("PE" + to_string(pe)).c_str()),
-            pe, args.nocTx, base, 0.0, args.is_read, data_len);
+            pe, args.nocTx, base, 0.0, args.is_read, data_len,
+            args.clockPeriod);
         p->bindXbar(&xbar);
         if (interleave)
             p->setAddrMode(AddrDecoder::INTERLEAVE, args.blockSize);

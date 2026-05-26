@@ -8,10 +8,11 @@ using namespace std;
 
 // ---------------------------------------------------------------------------
 ChannelScheduler::ChannelScheduler(sc_module_name name, int channel,
-                                   int age_threshold)
+                                   int age_threshold, int max_qdepth)
     : sc_module(name)
     , m_channel(channel)
     , m_age_threshold(age_threshold)
+    , m_max_qdepth(max_qdepth)
     , m_rr_ptr(0)
     , m_age_cycle(0)
 {
@@ -21,12 +22,20 @@ ChannelScheduler::ChannelScheduler(sc_module_name name, int channel,
 }
 
 // ---------------------------------------------------------------------------
-void ChannelScheduler::enqueue(int src_pe, const ReqEntry& req)
+bool ChannelScheduler::enqueue(int src_pe, const ReqEntry& req)
 {
+    if (static_cast<int>(m_queues[src_pe].size()) >= m_max_qdepth)
+        return false;  // queue full, backpressure
     ReqEntry copy = req;
-    copy.age = m_age_cycle;  // timestamp
+    copy.age = m_age_cycle;
     copy.src_pe = src_pe;
     m_queues[src_pe].push(copy);
+    return true;
+}
+
+bool ChannelScheduler::isFull(int src_pe) const
+{
+    return static_cast<int>(m_queues[src_pe].size()) >= m_max_qdepth;
 }
 
 // ---------------------------------------------------------------------------

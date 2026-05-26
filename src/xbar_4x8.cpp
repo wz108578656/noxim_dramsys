@@ -23,11 +23,9 @@ bool Xbar4x8::route(int src_pe, const ReqEntry& req)
     if (ch < 0 || ch >= 8 || !m_sched[ch])
         return false;
 
-    // Check backpressure: if queue full, return false
-    // Simple backpressure via checking all 4 queues... use a heuristic
-    // For now, always accept (bounded by scheduler's queue depth)
-    m_sched[ch]->enqueue(src_pe, req);
-    m_sched[ch]->notifyReq();  // wakes DramPE to dequeue
+    if (!m_sched[ch]->enqueue(src_pe, req))
+        return false;  // scheduler queue full → backpressure
+    m_sched[ch]->notifyReq();
     m_sig_routed[ch].write(m_sig_routed[ch].read() + 1);
     return true;
 }

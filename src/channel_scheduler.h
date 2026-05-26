@@ -59,11 +59,12 @@ public:
     sc_in<bool> reset;
 
     ChannelScheduler(sc_module_name name, int channel,
-                     int age_threshold = 16);
+                     int age_threshold = 16, int max_qdepth = 16);
 
     // Interface
-    void enqueue(int src_pe, const ReqEntry& req);
+    bool enqueue(int src_pe, const ReqEntry& req);  // false = full
     bool dequeue(ReqEntry& req);
+    bool isFull(int src_pe) const;
     void notifyReq() { m_reqEvent.notify(SC_ZERO_TIME); }
     sc_core::sc_event& reqEvent() { return m_reqEvent; }
 
@@ -85,6 +86,7 @@ private:
 
     int m_channel;
     int m_age_threshold;
+    int m_max_qdepth;
     ArbMode m_arb_mode = ROW_HIT;
 
     std::queue<ReqEntry> m_queues[4];

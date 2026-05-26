@@ -10,7 +10,7 @@ using namespace std;
 // ---------------------------------------------------------------------------
 TrafficPE::TrafficPE(sc_module_name name, int pe_id, int num_tx,
                      uint64_t base_addr, double inj_rate_ns, bool is_read,
-                     int data_len)
+                     int data_len, double clock_period)
     : sc_module(name)
     , m_pe_id(pe_id)
     , m_num_tx(num_tx)
@@ -18,6 +18,7 @@ TrafficPE::TrafficPE(sc_module_name name, int pe_id, int num_tx,
     , m_base_addr(base_addr)
     , m_inj_interval(inj_rate_ns, SC_NS)
     , m_is_read(is_read)
+    , m_clock_period(clock_period)
     , m_tx_sent(0)
 {
     SC_THREAD(run);
@@ -52,12 +53,10 @@ void TrafficPE::run()
         for (int w = 0; w < 32; ++w)
             req.data[w] = pattern + w;
 
-        // Send through crossbar → scheduler → DramPE
-        // Retry if backpressure (scheduler queue full)
+        // Send through crossbar → scheduler → DramPE (max 1 attempt/cycle)
         if (m_xbar) {
             while (!m_xbar->route(m_pe_id, req)) {
-                // Backpressure: wait and retry
-                wait(sc_time(1, SC_NS));
+                wait(sc_time(m_clock_period, SC_NS));  // wait one cycle, retry
             }
         }
 
