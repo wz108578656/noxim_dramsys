@@ -120,6 +120,8 @@ private:
     sc_signal<int>      m_sig_out_src_pe{"out_src_pe"};
     sc_signal<bool>     m_sig_hit{"hit"};
     sc_signal<bool>     m_sig_aged{"aged"};
+    sc_signal<bool>     m_sig_update_bank{"update_bank"};
+    sc_signal<int>      m_sig_rr_ptr{"rr_ptr"};
 };
 
 #endif // CHANNEL_SCHEDULER_H

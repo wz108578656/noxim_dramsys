@@ -70,7 +70,7 @@ void ChannelScheduler::ageProcess()
 {
     if (reset.read()) {
         m_age_cycle = 0;
-        m_rr_ptr = 0;
+        m_rr_ptr = 0; m_sig_rr_ptr.write(m_rr_ptr);
         m_sig_q0_depth.write(0); m_sig_q1_depth.write(0);
         m_sig_q2_depth.write(0); m_sig_q3_depth.write(0);
         m_sig_q0_age.write(0); m_sig_q1_age.write(0);
@@ -119,6 +119,7 @@ void ChannelScheduler::updateBankState(const ReqEntry& req)
     }
     m_bank_state[bg][bank].row_open = true;
     m_bank_state[bg][bank].open_row = static_cast<uint64_t>(row);
+    m_sig_update_bank.write(!m_sig_update_bank.read());
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +135,7 @@ bool ChannelScheduler::arbitrate(ReqEntry& req)
             if (m_queues[port].empty()) continue;
             req = m_queues[port].front();
             m_queues[port].pop();
-            m_rr_ptr = (port + 1) % 4;
+            m_rr_ptr = (port + 1) % 4; m_sig_rr_ptr.write(m_rr_ptr);
             m_sig_hit.write(false);
             m_sig_aged.write(false);
             m_sig_out_addr.write(req.address);
@@ -198,7 +199,7 @@ bool ChannelScheduler::arbitrate(ReqEntry& req)
         m_queues[sel].pop();
         m_sig_hit.write(true);
         m_sig_aged.write(false);
-        m_rr_ptr = (sel + 1) % 4;
+        m_rr_ptr = (sel + 1) % 4; m_sig_rr_ptr.write(m_rr_ptr);
         req.age = m_age_cycle - req.age;
         return true;
     }
@@ -226,7 +227,7 @@ bool ChannelScheduler::arbitrate(ReqEntry& req)
         m_queues[sel].pop();
         m_sig_hit.write(false);
         m_sig_aged.write(true);
-        m_rr_ptr = (sel + 1) % 4;
+        m_rr_ptr = (sel + 1) % 4; m_sig_rr_ptr.write(m_rr_ptr);
         return true;
     }
 
@@ -239,7 +240,7 @@ bool ChannelScheduler::arbitrate(ReqEntry& req)
             m_queues[port].pop();
             m_sig_hit.write(false);
             m_sig_aged.write(false);
-            m_rr_ptr = (port + 1) % 4;
+            m_rr_ptr = (port + 1) % 4; m_sig_rr_ptr.write(m_rr_ptr);
             return true;
         }
     }
@@ -251,7 +252,7 @@ bool ChannelScheduler::arbitrate(ReqEntry& req)
             m_queues[port].pop();
             m_sig_hit.write(false);
             m_sig_aged.write(false);
-            m_rr_ptr = (port + 1) % 4;
+            m_rr_ptr = (port + 1) % 4; m_sig_rr_ptr.write(m_rr_ptr);
             return true;
         }
     }
@@ -287,4 +288,6 @@ void ChannelScheduler::traceAll(sc_core::sc_trace_file* tf) const
     sc_core::sc_trace(tf, m_sig_out_src_pe, m_sig_out_src_pe.name());
     sc_core::sc_trace(tf, m_sig_hit, m_sig_hit.name());
     sc_core::sc_trace(tf, m_sig_aged, m_sig_aged.name());
+    sc_core::sc_trace(tf, m_sig_update_bank, m_sig_update_bank.name());
+    sc_core::sc_trace(tf, m_sig_rr_ptr, m_sig_rr_ptr.name());
 }
