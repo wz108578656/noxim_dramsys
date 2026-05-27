@@ -86,9 +86,9 @@ void DramPE::process()
         trans->set_byte_enable_length(0);
         trans->set_dmi_allowed(false);
 
-        // AT: send BEGIN_REQ
+        // AT: send BEGIN_REQ (1 cycle latency)
         tlm_phase phase = BEGIN_REQ;
-        sc_time delay = SC_ZERO_TIME;
+        sc_time delay = sc_time(1, SC_NS);
         tlm_sync_enum status = m_ini->nb_transport_fw(*trans, phase, delay);
 
         if (status == TLM_ACCEPTED && phase == BEGIN_REQ)
