@@ -28,8 +28,11 @@ private:
     void clearBusy();  // SC_METHOD: reset busy flags each cycle
 
     ChannelScheduler* m_sched[8] = {};
-    bool m_busy[8];                // per-channel busy this cycle
+    bool m_busy[8];
+    int  m_last_pe[8];    // last PE served per channel
+    int  m_prefer_pe[8];  // preferred PE this cycle = (last_pe+1)%4
     sc_signal<int> m_sig_routed[8];
+    sc_signal<int> m_sig_prefer[8];
 };
 
 #endif // XBAR_4X8_H
