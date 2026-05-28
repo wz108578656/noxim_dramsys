@@ -40,6 +40,7 @@ void TrafficPE::run()
          << ", chShift=" << m_decoder.chShift << endl;
 
     for (int i = 0; i < m_num_tx; ++i) {
+        wait(clock.posedge_event());  // every transaction starts at posedge
         uint64_t addr = m_base_addr + static_cast<uint64_t>(i) * m_data_len;
 
         ReqEntry req;
@@ -53,12 +54,11 @@ void TrafficPE::run()
         for (int w = 0; w < 32; ++w)
             req.data[w] = pattern + w;
 
-        // Send through crossbar → scheduler (1 attempt per cycle)
+        // Send through crossbar → scheduler (retry each cycle if busy)
         if (m_xbar) {
             while (!m_xbar->route(m_pe_id, req))
-                wait(sc_time(m_clock_period, SC_NS));
+                wait(clock.posedge_event());  // retry next posedge
         }
-        wait(sc_time(m_clock_period, SC_NS));  // 1 cycle between transactions
 
         m_tx_sent++;
 

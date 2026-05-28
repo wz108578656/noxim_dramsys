@@ -41,6 +41,8 @@ SC_MODULE(TrafficPE)
 public:
     SC_HAS_PROCESS(TrafficPE);
 
+    sc_in_clk clock;
+
     TrafficPE(sc_module_name name, int pe_id, int num_tx,
               uint64_t base_addr, double inj_rate_ns, bool is_read,
               int data_len, double clock_period = 1.0);

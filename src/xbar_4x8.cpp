@@ -11,7 +11,7 @@ Xbar4x8::Xbar4x8(sc_module_name name)
 {
     memset(m_busy, 0, sizeof(m_busy));
     SC_METHOD(clearBusy);
-    sensitive << clock.pos();
+    sensitive << clock.neg();  // clear at negedge, ready for posedge
     sensitive << reset;
 }
 

@@ -144,6 +144,7 @@ int sc_main(int argc, char** argv)
             sc_module_name(("PE" + to_string(pe)).c_str()),
             pe, args.nocTx, base, 0.0, args.is_read, data_len,
             args.clockPeriod);
+        p->clock(clk);
         p->bindXbar(&xbar);
         if (interleave)
             p->setAddrMode(AddrDecoder::INTERLEAVE, args.blockSize);
