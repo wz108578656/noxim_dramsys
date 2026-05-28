@@ -58,17 +58,17 @@ PE → ReqEntry → 4×8 Xbar (addr→ch) → ChannelScheduler[ch] (arbitrate)
 All tests: READ, 256B, 0.2ns clock, DDR4-1866 ×64 8ch (119.2 GB/s aggregate),
 maxInFlight=64, Arbiter::Reorder. Bus utilization from DRAMSys controller output.
 
-### 8ch Performance (1GHz default, Interleave 256B)
+### Performance (1GHz, xbar per-cycle arb, posedge/negedge timing)
 
-| Arb mode | Row pattern | Bus util | Aggregate BW | E2E time |
-|:---------|:------------|:--------:|:------------:|:--------:|
-| RR-ONLY / ROW-HIT | Same row | **91.4%** | 109.1 GB/s | 9500 ns |
-| RR-ONLY | **Row-staggered** | 73.1% | 87.3 GB/s | 11900 ns |
-| **ROW-HIT** | **Row-staggered** | **85.2%** | **101.7 GB/s** | **10200 ns** |
+| Test | Arb mode | E2E time | Bus util | Aggregate BW |
+|:----|:---------|:--------:|:--------:|:------------:|
+| No-interleave | — | 9300 ns | **93.3%** | 111.4 GB/s |
+| Interleave 256B | — | 9300 ns | **93.3%** | 111.4 GB/s |
+| All→ch0 | — | 9400 ns | **92.3%** | 110.3 GB/s |
+| Row-staggered | RR-ONLY | 10400 ns | 83.6% | 99.8 GB/s |
+| **Row-staggered** | **ROW-HIT** | **9700 ns** | **89.5%** | **106.9 GB/s** |
 
-Key finding: **ROW-HIT matters when PEs access different rows on the same channel.** With same-row traffic, both arbiters perform identically. With row-staggered traffic (realistic workload), ROW-HIT outperforms RR by **+16.5%**.
-
-Row-staggered test: `--base-shift 3` (each PE base shifted by 512KB = 1 row stride).
+ROW-HIT outperforms RR-ONLY by **+5.9%** under row-staggered traffic (`--base-shift 3`). Same-row cases achieve 92-93% DRAM saturation regardless of arbiter.
 
 ### Arbiter Comparison
 
