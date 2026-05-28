@@ -1,14 +1,18 @@
 // ============================================================================
-// xbar_4x8.cpp — 4×8 crossbar implementation
+// xbar_4x8.cpp — 4×8 crossbar: per-cycle per-channel arbitration
 // ============================================================================
 #include "xbar_4x8.h"
-#include "traffic_pe.h"
+#include <cstring>
 
 using namespace std;
 
 Xbar4x8::Xbar4x8(sc_module_name name)
     : sc_module(name)
 {
+    memset(m_busy, 0, sizeof(m_busy));
+    SC_METHOD(clearBusy);
+    sensitive << clock.pos();
+    sensitive << reset;
 }
 
 void Xbar4x8::bindScheduler(int ch, ChannelScheduler* sched)
@@ -17,14 +21,29 @@ void Xbar4x8::bindScheduler(int ch, ChannelScheduler* sched)
         m_sched[ch] = sched;
 }
 
+void Xbar4x8::clearBusy()
+{
+    if (reset.read()) {
+        memset(m_busy, 0, sizeof(m_busy));
+        return;
+    }
+    // At start of each cycle, clear busy flags
+    memset(m_busy, 0, sizeof(m_busy));
+}
+
 bool Xbar4x8::route(int src_pe, const ReqEntry& req)
 {
     int ch = AddrDecode::channel(req.address);
     if (ch < 0 || ch >= 8 || !m_sched[ch])
         return false;
 
+    // Per-cycle arbitration: only 1 PE per channel per cycle
+    if (m_busy[ch])
+        return false;
+    m_busy[ch] = true;
+
     if (!m_sched[ch]->enqueue(src_pe, req))
-        return false;  // scheduler queue full → backpressure
+        return false;
     m_sched[ch]->notifyReq();
     m_sig_routed[ch].write(m_sig_routed[ch].read() + 1);
     return true;

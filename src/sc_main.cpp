@@ -110,6 +110,8 @@ int sc_main(int argc, char** argv)
 
     // ---- 4×8 Crossbar ----
     Xbar4x8 xbar("xbar");
+    xbar.clock(clk);
+    xbar.reset(rst);
 
     // ---- 8 Channel Schedulers ----
     static const int NUM_CH = 8;
