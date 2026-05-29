@@ -1,18 +1,18 @@
 [*]
 [*] GTKWave Analyzer v3.3.103 (w)1999-2019 BSI
-[*] Wed May 27 05:00:45 2026
+[*] Fri May 29 02:12:07 2026
 [*]
 [dumpfile] "/data/zhuo.wang/noxim_dramsys/trace_rronly.vcd"
-[dumpfile_mtime] "Tue May 26 13:17:15 2026"
-[dumpfile_size] 7622433
+[dumpfile_mtime] "Fri May 29 01:39:07 2026"
+[dumpfile_size] 6413315
 [savefile] "/data/zhuo.wang/noxim_dramsys/xxx.gtkw"
-[timestart] 47000
+[timestart] 0
 [size] 1920 1017
 [pos] -1 -1
-*-16.257385 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+*-12.317767 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
 [treeopen] SystemC.
 [sst_width] 214
-[signals_width] 184
+[signals_width] 322
 [sst_expanded] 1
 [sst_vpaned_height] 299
 @24
@@ -42,15 +42,19 @@ SystemC.SchedCh0.out_addr[63:0]
 SystemC.SchedCh0.out_bank[31:0]
 SystemC.SchedCh0.out_bg[31:0]
 SystemC.SchedCh0.out_row[31:0]
+@25
 SystemC.SchedCh0.out_src_pe[31:0]
+@24
+SystemC.SchedCh0.rr_ptr[31:0]
+@28
+SystemC.SchedCh0.update_bank
+@24
 SystemC.SchedCh0.q0_age[31:0]
 SystemC.SchedCh0.q0_bank[31:0]
 SystemC.SchedCh0.q0_bg[31:0]
 SystemC.SchedCh0.q0_depth[31:0]
 SystemC.SchedCh0.q1_age[31:0]
-@25
 SystemC.SchedCh0.q1_bank[31:0]
-@24
 SystemC.SchedCh0.q1_bg[31:0]
 SystemC.SchedCh0.q1_depth[31:0]
 SystemC.SchedCh0.q2_age[31:0]
@@ -64,5 +68,25 @@ SystemC.SchedCh0.q3_depth[31:0]
 @28
 SystemC.clk
 SystemC.rst
+@22
+SystemC.PE0.addr[63:0]
+@24
+SystemC.PE0.channel[31:0]
+SystemC.PE0.tx_sent[63:0]
+@22
+SystemC.PE1.addr[63:0]
+@24
+SystemC.PE1.channel[31:0]
+SystemC.PE1.tx_sent[63:0]
+@22
+SystemC.PE2.addr[63:0]
+@24
+SystemC.PE2.channel[31:0]
+SystemC.PE2.tx_sent[63:0]
+@22
+SystemC.PE3.addr[63:0]
+@24
+SystemC.PE3.channel[31:0]
+SystemC.PE3.tx_sent[63:0]
 [pattern_trace] 1
 [pattern_trace] 0
