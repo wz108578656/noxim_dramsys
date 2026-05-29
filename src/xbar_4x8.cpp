@@ -46,11 +46,8 @@ void Xbar4x8::resetArbitrate()
     if (!reset.read()) return;
     for (int p = 0; p < 4; ++p)
         while (!m_pe_buf[p].empty()) m_pe_buf[p].pop();
-    for (int ch = 0; ch < 8; ++ch) {
+    for (int ch = 0; ch < 8; ++ch)
         m_rr_ptr[ch] = 0;
-        m_sig_rr[ch].write(0);
-        m_sig_routed[ch].write(0);
-    }
 }
 
 // ---------------------------------------------------------------------------
