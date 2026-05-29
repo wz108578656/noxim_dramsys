@@ -87,9 +87,9 @@ fi
 
 # ---- VCD ----
 echo "=== VCD Waveforms ==="
-gen_vcd "rowhit" "--addr-mode interleave --block-size 256 --base-shift 3"
-gen_vcd "rronly" "--addr-mode interleave --block-size 256 --base-shift 3 --arb-mode rronly"
+gen_vcd "interleave_256B_rowstag_rowhit" "--addr-mode interleave --block-size 256 --base-shift 3"
+gen_vcd "interleave_256B_rowstag_rronly" "--addr-mode interleave --block-size 256 --base-shift 3 --arb-mode rronly"
 echo ""
 
 echo "=== Done ==="
-ls -lh "$BUILD_DIR/trace_"*.vcd 2>/dev/null || echo "  (no VCD files)"
+ls -lh "$BUILD_DIR/interleave_"*.vcd 2>/dev/null || echo "  (no VCD files)"
