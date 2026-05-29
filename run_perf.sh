@@ -17,7 +17,7 @@ TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 
 TX=4096
-TX_VCD=200
+TX_VCD=4096
 CLOCK="1.0"
 
 export SC_SIGNAL_WRITE_CHECK=DISABLE
