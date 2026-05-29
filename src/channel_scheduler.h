@@ -16,6 +16,7 @@ struct ReqEntry {
     uint64_t address;
     int      src_pe;
     int      tag;
+    int      channel;      // pre-decoded by AddrDecoder (matches block-size config)
     int      age;
     bool     is_write;
     uint32_t data[32];    // 128B

@@ -25,7 +25,7 @@ struct Args {
     double clockPeriod   = 1.0;  // 1 GHz default
     bool   modeA         = false;
     string addrMode      = "nointerleave";
-    int    blockSize     = 4096;
+    int    blockSize     = 256;
     int    txSize        = 256;
     int    ageThreshold  = 16;
     int    baseShift     = 0;

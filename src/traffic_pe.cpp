@@ -45,6 +45,7 @@ void TrafficPE::run()
 
         ReqEntry req;
         req.address = addr;
+        req.channel = m_decoder.decode(addr);
         req.src_pe  = m_pe_id;
         req.tag     = i;
         req.is_write = !m_is_read;
@@ -65,7 +66,7 @@ void TrafficPE::run()
         // VCD
         m_sig_tx_sent.write(m_tx_sent);
         m_sig_addr.write(addr);
-        m_sig_channel.write(AddrDecode::channel(addr));
+        m_sig_channel.write(req.channel);
 
         if (m_inj_interval != SC_ZERO_TIME)
             wait(m_inj_interval);

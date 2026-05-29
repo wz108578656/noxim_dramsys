@@ -8,7 +8,7 @@
 TrafficPE[0..3] (4 PEs, flat address generator)
     │
     ▼
-  4×8 Crossbar (decodes channel from address)
+  4×8 Crossbar (per-PE buf depth=2, 8× per-channel RR SC_METHOD)
     │
     +--- ChannelScheduler[0..7] (RR / row-hit arbitration)
     |        |
@@ -23,15 +23,15 @@ TrafficPE[0..3] (4 PEs, flat address generator)
 | Component | File | Description |
 |-----------|------|-------------|
 | TrafficPE | `src/traffic_pe.h/cpp` | Flat-address ReqEntry generator, sends via xbar |
-| Xbar4x8 | `src/xbar_4x8.h/cpp` | 4×8 crossbar: route by channel to scheduler |
+| Xbar4x8 | `src/xbar_4x8.h/cpp` | 4×8 crossbar: per-PE buffer (depth 2) + 8 independent per-channel RR SC_METHODs |
 | ChannelScheduler | `src/channel_scheduler.h/cpp` | Per-channel scheduler: RR/row-hit arbitration, anti-starvation |
 | DramPE | `src/dram_pe.h/cpp` | Pull ReqEntry from scheduler → TLM AT protocol to DRAMSys |
 | DramInterface | `src/DramInterface.h/cpp` | DRAMSys wrapper, b_transport verification |
 
 **Data flow:**
 ```
-PE → ReqEntry → 4×8 Xbar (addr→ch) → ChannelScheduler[ch] (arbitrate)
-→ DramPE[ch] → nb_transport_fw (AT, Arbiter::Reorder)
+PE → ReqEntry → Xbar route() (per-PE buf, depth 2) → per-channel RR SC_METHOD
+→ ChannelScheduler[ch] (arbitrate) → DramPE[ch] → nb_transport_fw (AT, Arbiter::Reorder)
 → DRAMSys Controller → DDR4
 ```
 
@@ -41,9 +41,9 @@ PE → ReqEntry → 4×8 Xbar (addr→ch) → ChannelScheduler[ch] (arbitrate)
 |------|---------|-------------|
 | `--dram-config <path>` | auto | DRAMSys JSON config |
 | `--noc-tx <N>` | 1000 | Transactions per PE |
-| `--noc-clock <ns>` | 0.2 | Clock period |
+| `--noc-clock <ns>` | 1.0 | Clock period (ns) |
 | `--addr-mode <mode>` | nointerleave | `nointerleave` or `interleave` |
-| `--block-size <N>` | 4096 | Interleave block size |
+| `--block-size <N>` | 256 | Interleave block size |
 | `--tx-size <N>` | 256 | Transaction size (bytes) |
 | `--arb-mode <mode>` | rowhit | `rronly` or `rowhit` |
 | `--age-threshold <N>` | 16 | Anti-starvation age (cycles) |
@@ -55,28 +55,20 @@ PE → ReqEntry → 4×8 Xbar (addr→ch) → ChannelScheduler[ch] (arbitrate)
 
 ## Performance Results
 
-All tests: READ, 256B, 0.2ns clock, DDR4-1866 ×64 8ch (119.2 GB/s aggregate),
-maxInFlight=64, Arbiter::Reorder. Bus utilization from DRAMSys controller output.
+All tests: READ, 256B, 1.0ns clock (1GHz xbar), DDR4-1866 ×64 8ch (119.4 GB/s aggregate),
+maxInFlight=64, Arbiter::Reorder. Bus utilization from DRAMSys controller AVG BW / MAX BW.
 
-### Performance (1GHz, xbar per-cycle arb, posedge/negedge timing)
+### 1GHz — Interleave 256B, RR-ONLY vs ROW-HIT
 
-| Test | Arb mode | E2E time | Bus util | Aggregate BW |
-|:----|:---------|:--------:|:--------:|:------------:|
-| No-interleave | — | 9300 ns | **93.3%** | 111.4 GB/s |
-| Interleave 256B | — | 9300 ns | **93.3%** | 111.4 GB/s |
-| All→ch0 | — | 9400 ns | **92.3%** | 110.3 GB/s |
-| Row-staggered | RR-ONLY | 10400 ns | 83.6% | 99.8 GB/s |
-| **Row-staggered** | **ROW-HIT** | **9700 ns** | **89.5%** | **106.9 GB/s** |
+| Test | Arb mode | E2E time | Bus util | Bandwidth |
+|:----|:---------|:--------:|:--------:|:---------:|
+| Same-row | ROW-HIT | 9400 ns | 92.3% | 110.3 GB/s |
+| Same-row | RR-ONLY | 9200 ns | 94.3% | 112.6 GB/s |
+| Row-staggered | ROW-HIT | 10300 ns | **84.4%** | **100.7 GB/s** |
+| Row-staggered | RR-ONLY | 11900 ns | 73.1% | 87.3 GB/s |
 
-ROW-HIT outperforms RR-ONLY by **+5.9%** under row-staggered traffic (`--base-shift 3`). Same-row cases achieve 92-93% DRAM saturation regardless of arbiter.
-
-### Arbiter Comparison
-
-| Arbiter | Bus util | Note |
-|:--------|:--------:|:------|
-| Simple | — | No backpressure, not used |
-| Fifo | 93.3% | Basic pipeline control |
-| **Reorder** | **95.4%** | Per-initiator in-order, minimal overhead |
+ROW-HIT outperforms RR-ONLY by **+15.4%** under row-staggered traffic (`--base-shift 3`).
+Under same-row traffic both saturate DRAM to ~92-94% regardless of arbiter mode.
 
 ## Directory Structure
 
