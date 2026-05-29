@@ -87,8 +87,8 @@ fi
 
 # ---- VCD ----
 echo "=== VCD Waveforms ==="
-gen_vcd "rowhit" ""
-gen_vcd "rronly" "--arb-mode rronly"
+gen_vcd "rowhit" "--addr-mode interleave --block-size 256"
+gen_vcd "rronly" "--addr-mode interleave --block-size 256 --arb-mode rronly"
 echo ""
 
 echo "=== Done ==="
