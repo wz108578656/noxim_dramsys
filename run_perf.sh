@@ -12,6 +12,7 @@
 set -euo pipefail
 
 BUILD_DIR="$(cd "$(dirname "$0")" && pwd)/build"
+VCD_DIR="$(cd "$(dirname "$0")" && pwd)/vcd_backup"
 README="$(cd "$(dirname "$0")" && pwd)/README.md"
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -57,9 +58,10 @@ gen_vcd() {
     local name="$1"
     local extra="$2"
     echo "  [VCD] $name..."
+    mkdir -p "$VCD_DIR"
     "$BUILD_DIR/noxim_dramsys" --noc-tx "$TX_VCD" --noc-clock "$CLOCK" \
-        --noc-read --vcd "$BUILD_DIR/trace_$name" $extra > /dev/null 2>&1
-    ls -lh "$BUILD_DIR/trace_$name.vcd"
+        --noc-read --vcd "$VCD_DIR/$name" $extra > /dev/null 2>&1
+    ls -lh "$VCD_DIR/$name.vcd"
 }
 
 # ---- Performance Tests ----
@@ -92,4 +94,4 @@ gen_vcd "interleave_256B_rowstag_rronly" "--addr-mode interleave --block-size 25
 echo ""
 
 echo "=== Done ==="
-ls -lh "$BUILD_DIR/interleave_"*.vcd 2>/dev/null || echo "  (no VCD files)"
+ls -lh "$VCD_DIR"/*.vcd 2>/dev/null || echo "  (no VCD files)"
