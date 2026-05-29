@@ -57,7 +57,7 @@ void TrafficPE::run()
         // Send through crossbar → scheduler (retry each cycle if busy)
         if (m_xbar) {
             while (!m_xbar->route(m_pe_id, req))
-                wait(clock.posedge_event());  // retry next posedge
+                wait(clock.posedge_event());
         }
 
         m_tx_sent++;

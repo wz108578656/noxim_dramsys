@@ -1,5 +1,5 @@
 // ============================================================================
-// xbar_4x8.h — 4×8 crossbar: per-cycle FCFS arbitration per channel
+// xbar_4x8.h — 4×8 crossbar: per-cycle FCFS per channel
 // ============================================================================
 #ifndef XBAR_4X8_H
 #define XBAR_4X8_H
@@ -23,17 +23,10 @@ public:
 
 private:
     void clearBusy();
-    void resolveFallback();
 
     ChannelScheduler* m_sched[8] = {};
     bool m_busy[8];
-    int  m_fallback_pe[8];
-    bool m_fallback_done[8];
-    ReqEntry m_fallback_req[8];
-    sc_core::sc_event m_resolveEvent;
-
     sc_signal<int> m_sig_routed[8];
-    sc_signal<int> m_sig_prefer[8];
 };
 
 #endif
