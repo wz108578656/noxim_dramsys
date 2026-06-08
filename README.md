@@ -50,6 +50,10 @@ PE → ReqEntry → Xbar route() (per-PE buf, depth 2) → per-channel RR SC_MET
 | `--noc-mode-a` | off | Force all traffic to channel 0 |
 | `--noc-read` | off | READ transactions |
 | `--max-cycles <N>` | 100000 | Max simulation cycles |
+| `--pe-jitter <N>` | 0 | PE start jitter (cycles, randomized test) |
+| `--base-jitter <N>` | 0 | Address offset jitter (blocks, randomized test) |
+| `--rand-seed <N>` | 1 | Random seed |
+| `--multi-run <N>` | 1 | Number of runs (for statistics) |
 | `--vcd <file>` | — | VCD waveform trace |
 | `-h` | — | Help |
 
@@ -70,6 +74,26 @@ maxInFlight=64, Arbiter::Reorder. Bus utilization from DRAMSys controller AVG BW
 ROW-HIT outperforms RR-ONLY by **+15.4%** under row-staggered traffic (`--base-shift 3`).
 Under same-row traffic both saturate DRAM to ~92-94% regardless of arbiter mode.
 
+### Randomized (PE jitter + addr offset, 5-run min/max/avg)
+
+Same conditions as baseline plus `--pe-jitter 10 --base-jitter 100`, 5 runs with seeds 1-5.
+
+| Test | Arb mode | E2E (min/avg/max) | Util (min/max) |
+|:----|:---------|:-----------------:|:--------------:|
+| Same-row | ROW-HIT | 9300 / 9300 / 9300 | 93.3% |
+| Same-row | RR-ONLY | 9200 / 9200 / 9200 | 94.3% |
+| Row-staggered | ROW-HIT | 9900 / **10000** / 10100 | 86.0–87.7% |
+| Row-staggered | RR-ONLY | 11200 / **11340** / 11500 | 75.6–77.7% |
+
+ROW-HIT advantage under row-staggered: **+13.4%** (avg 10000 vs 11340 ns), consistent with baseline.
+Same-row cases show zero variance — address offset has no effect when all PEs hit the same row.
+
+```bash
+# Run yourself:
+./run_perf.sh              # baseline
+./run_perf.sh --randomized # randomized + multi-run
+```
+
 ## Directory Structure
 
 ```
@@ -87,8 +111,12 @@ noxim_dramsys/
 │   ├── channel_scheduler.h/cpp          Per-channel scheduler
 │   ├── dram_pe.h/cpp                    TLM bridge
 │   └── DramInterface.h/cpp              DRAMSys wrapper
-├── trace_ddr4_1866_256b.vcd            Waveform: DDR4-1866 interleave
-├── trace_ddr4_4000_256b.vcd            Waveform: DDR4-4000 interleave
+├── run_perf.sh                          Performance test suite
+├── vcd_backup/                          VCD waveform files
+│   ├── interleave_256B_rowstag_rowhit.vcd       Baseline ROW-HIT
+│   ├── interleave_256B_rowstag_rronly.vcd       Baseline RR-ONLY
+│   ├── interleave_256B_rowstag_rowhit_rand.vcd  Randomized ROW-HIT
+│   └── interleave_256B_rowstag_rronly_rand.vcd  Randomized RR-ONLY
 ```
 
 ## Quick Start
