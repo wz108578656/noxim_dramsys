@@ -33,6 +33,10 @@ struct Args {
     string arbMode       = "rowhit";
     bool   is_read       = false;
     int    maxCycles     = 100000;
+    int    peJitter      = 0;
+    int    baseJitter    = 0;
+    int    randSeed      = 1;
+    int    multiRun      = 1;
     string vcdFile;
 };
 
@@ -54,6 +58,10 @@ static Args parseArgs(int argc, char** argv)
         else if (arg == "--noc-mode-a") args.modeA = true;
         else if (arg == "--noc-read") args.is_read = true;
         else if (arg == "--max-cycles" && i + 1 < argc) args.maxCycles = atoi(argv[++i]);
+        else if (arg == "--pe-jitter" && i + 1 < argc) args.peJitter = atoi(argv[++i]);
+        else if (arg == "--base-jitter" && i + 1 < argc) args.baseJitter = atoi(argv[++i]);
+        else if (arg == "--rand-seed" && i + 1 < argc) args.randSeed = atoi(argv[++i]);
+        else if (arg == "--multi-run" && i + 1 < argc) args.multiRun = atoi(argv[++i]);
         else if (arg == "--vcd" && i + 1 < argc) args.vcdFile = argv[++i];
         else if (arg == "-h" || arg == "--help") {
             cout << "Usage: " << argv[0] << " [opts]\n"
@@ -67,6 +75,10 @@ static Args parseArgs(int argc, char** argv)
                  << "  --noc-mode-a          Force all traffic to channel 0\n"
                  << "  --noc-read            READ transactions\n"
                  << "  --max-cycles <N>      Max cycles\n"
+                 << "  --pe-jitter <N>       PE start jitter (cycles)\n"
+                 << "  --base-jitter <N>     Address offset jitter (blocks)\n"
+                 << "  --rand-seed <N>       Random seed\n"
+                 << "  --multi-run <N>       Number of runs (for statistics)\n"
                  << "  --vcd <file>          VCD trace\n"
                  << endl;
             exit(0);
@@ -79,6 +91,7 @@ int sc_main(int argc, char** argv)
 {
     Args args = parseArgs(argc, argv);
 
+    srand(args.randSeed);
     bool interleave = (args.addrMode == "interleave");
 
     string dramConfig = args.dramConfig;
@@ -143,7 +156,7 @@ int sc_main(int argc, char** argv)
         auto* p = new TrafficPE(
             sc_module_name(("PE" + to_string(pe)).c_str()),
             pe, args.nocTx, base, 0.0, args.is_read, data_len,
-            args.clockPeriod);
+            args.clockPeriod, args.peJitter, args.baseJitter);
         p->clock(clk);
         p->bindXbar(&xbar);
         if (interleave)

@@ -10,7 +10,8 @@ using namespace std;
 // ---------------------------------------------------------------------------
 TrafficPE::TrafficPE(sc_module_name name, int pe_id, int num_tx,
                      uint64_t base_addr, double inj_rate_ns, bool is_read,
-                     int data_len, double clock_period)
+                     int data_len, double clock_period,
+                     int start_jitter, int base_jitter)
     : sc_module(name)
     , m_pe_id(pe_id)
     , m_num_tx(num_tx)
@@ -19,6 +20,8 @@ TrafficPE::TrafficPE(sc_module_name name, int pe_id, int num_tx,
     , m_inj_interval(inj_rate_ns, SC_NS)
     , m_is_read(is_read)
     , m_clock_period(clock_period)
+    , m_start_jitter(start_jitter)
+    , m_base_jitter(base_jitter)
     , m_tx_sent(0)
 {
     SC_THREAD(run);
@@ -37,7 +40,24 @@ void TrafficPE::run()
     cout << "  [PE" << m_pe_id << "] " << m_num_tx << " tx"
          << ", base=0x" << hex << m_base_addr << dec
          << ", mode=" << (m_is_read ? "READ" : "WRITE")
-         << ", chShift=" << m_decoder.chShift << endl;
+         << ", chShift=" << m_decoder.chShift;
+
+    // --- Random start jitter ---
+    if (m_start_jitter > 0) {
+        uint32_t delay = rand() % (m_start_jitter + 1);
+        for (uint32_t j = 0; j < delay; ++j)
+            wait(clock.posedge_event());
+        cout << ", peJitter=" << delay;
+    }
+
+    // --- Random address offset ---
+    if (m_base_jitter > 0) {
+        uint64_t offset = static_cast<uint64_t>(rand() % (m_base_jitter + 1)) * m_data_len;
+        m_base_addr += offset;
+        cout << ", baseAdj=+" << hex << offset << dec;
+    }
+
+    cout << endl;
 
     for (int i = 0; i < m_num_tx; ++i) {
         wait(clock.posedge_event());  // every transaction starts at posedge
