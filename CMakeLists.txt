@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.25)
 project(noxim_dramsys LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -6,40 +6,52 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # ============================================================================
-# SystemC
+# Dependencies via FetchContent
 # ============================================================================
-set(SYSTEMC "/data/zhuo.wang/systemc302_v2_clean")
-set(SYSTEMC_INCLUDE "${SYSTEMC}/include")
-set(SYSTEMC_LIB "${SYSTEMC}/lib-linux64")
+include(FetchContent)
 
-find_library(SYSTEMC_SHARED NAMES systemc-3.0.2 PATHS "${SYSTEMC}/lib-linux64" NO_DEFAULT_PATH)
-if(NOT SYSTEMC_SHARED)
-    message(FATAL_ERROR "libsystemc-3.0.2.so not found at ${SYSTEMC}/lib-linux64")
+# ---------------------------------------------------------------------------
+# yaml-cpp (NoC config parsing, no SystemC dependency)
+# ---------------------------------------------------------------------------
+FetchContent_Declare(yaml-cpp
+    GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+    GIT_TAG yaml-cpp-0.7.0
+    GIT_SHALLOW TRUE)
+FetchContent_MakeAvailable(yaml-cpp)
+
+# ---------------------------------------------------------------------------
+# DRAMSys (DRAM simulator — handles SystemC 3.0.2 + dependencies internally)
+# Must come before noxim so SystemC targets are available for noxim to use.
+# ---------------------------------------------------------------------------
+set(DRAMSYS_USE_FETCH_CONTENT    ON  CACHE BOOL "" FORCE)
+set(DRAMSYS_BUILD_CLI            OFF CACHE BOOL "" FORCE)
+set(DRAMSYS_BUILD_TESTS          OFF CACHE BOOL "" FORCE)
+set(DRAMSYS_BUILD_BENCHMARKS     OFF CACHE BOOL "" FORCE)
+set(DRAMSYS_BUILD_TOOLS          OFF CACHE BOOL "" FORCE)
+set(DRAMSYS_BUILD_TRACE_ANALYZER OFF CACHE BOOL "" FORCE)
+set(DRAMSYS_USE_EXTENSIONS       OFF CACHE BOOL "" FORCE)
+
+FetchContent_Declare(dramsys
+    GIT_REPOSITORY https://github.com/wz108578656/DRAMSys.git
+    GIT_SHALLOW TRUE)
+FetchContent_MakeAvailable(dramsys)
+
+# ---------------------------------------------------------------------------
+# Noxim fork (NoC simulator used as source library)
+# Has no CMakeLists.txt — we download and list sources manually.
+# Uses SystemC (fetched by DRAMSys above) via the SystemC::systemc target.
+# ---------------------------------------------------------------------------
+FetchContent_Declare(noxim
+    GIT_REPOSITORY https://github.com/wz108578656/noxim.git
+    GIT_SHALLOW TRUE)
+FetchContent_GetProperties(noxim)
+if(NOT noxim_POPULATED)
+    FetchContent_Populate(noxim)
 endif()
 
-include_directories(SYSTEM ${SYSTEMC_INCLUDE})
-link_directories(${SYSTEMC_LIB})
+set(NOXIM_SRC "${noxim_SOURCE_DIR}/src")
 
-# ============================================================================
-# Threads
-# ============================================================================
-find_package(Threads REQUIRED)
-
-# ============================================================================
-# yaml-cpp
-# ============================================================================
-set(YAML_CPP_ROOT "/data/zhuo.wang/noxim/libs/yaml-cpp")
-set(YAML_CPP_INCLUDE "${YAML_CPP_ROOT}/include")
-set(YAML_CPP_LIB "${YAML_CPP_ROOT}/build/libyaml-cpp.a")
-
-# ============================================================================
-# Noxim (from forked repo, built as static lib)
-# ============================================================================
-set(NOXIM_ROOT "/data/zhuo.wang/noxim")
-set(NOXIM_SRC "${NOXIM_ROOT}/src")
-set(NOXIM_BUILD "${NOXIM_ROOT}/bin/build")
-
-set(NOXIM_SRCS
+list(APPEND NOXIM_SRCS
     "${NOXIM_SRC}/Stats.cpp"
     "${NOXIM_SRC}/Router.cpp"
     "${NOXIM_SRC}/GlobalTrafficHardcoding.cpp"
@@ -77,38 +89,11 @@ set(NOXIM_SRCS
 )
 
 add_library(noxim STATIC EXCLUDE_FROM_ALL ${NOXIM_SRCS})
-target_include_directories(noxim PUBLIC ${NOXIM_SRC} SYSTEM ${SYSTEMC_INCLUDE} ${YAML_CPP_INCLUDE})
+target_include_directories(noxim PUBLIC ${NOXIM_SRC})
 target_compile_options(noxim PRIVATE -O3 -Wall)
-target_link_libraries(noxim PUBLIC ${YAML_CPP_LIB} -L${SYSTEMC}/lib-linux64 -lsystemc-3.0.2)
 
-# ============================================================================
-# DRAMSys (static lib from pre-built)
-# ============================================================================
-set(DRAMSYS_ROOT "/data/zhuo.wang/DRAMSys")
-set(DRAMSYS_BUILD "${DRAMSYS_ROOT}/build")
-
-# Hardcode paths directly (DRAMSys header lives at DRAMSys/DRAMSys.h)
-set(DRAMSYS_INCLUDE "${DRAMSYS_ROOT}/src")
-
-add_library(dramsys STATIC IMPORTED)
-set_target_properties(dramsys PROPERTIES IMPORTED_LOCATION "${DRAMSYS_BUILD}/lib/libdramsys.a")
-
-add_library(drampwr STATIC IMPORTED)
-set_target_properties(drampwr PROPERTIES IMPORTED_LOCATION "${DRAMSYS_BUILD}/lib/libDRAMPower.a")
-
-add_library(sqlite3 STATIC IMPORTED)
-set_target_properties(sqlite3 PROPERTIES IMPORTED_LOCATION "${DRAMSYS_BUILD}/lib/libsqlite3.a")
-
-set(DRAMSYS_EXTRA_INC
-    "${DRAMSYS_ROOT}/build/_deps/nlohmann_json-src/single_include"
-    "${DRAMSYS_ROOT}/build/_deps/dramutils-src/include"
-)
-
-# DRAMSys resource directory (contains config JSON files).
-set(DRAMSYS_RESOURCE_DIR "${DRAMSYS_ROOT}/configs")
-
-# DRAMSys header-only library (JSON parsing utilities).
-set(DRAMSYS_UTILS_INC "${DRAMSYS_ROOT}/build/_deps/dramutils-src/include")
+# Link against SystemC from DRAMSys FetchContent (ensures correct include paths and ABI)
+target_link_libraries(noxim PUBLIC yaml-cpp::yaml-cpp SystemC::systemc)
 
 # ============================================================================
 # Application (NoC Crossbar + DRAMSys co-simulation)
@@ -126,27 +111,20 @@ add_executable(noxim_dramsys ${NOXIM_DRAMSYS_SRCS})
 
 target_include_directories(noxim_dramsys PRIVATE
     ${NOXIM_SRC}
-    ${NOXIM_ROOT}
     SYSTEM ${CMAKE_CURRENT_SOURCE_DIR}/SYSTEM
-    ${DRAMSYS_INCLUDE}
-    ${DRAMSYS_EXTRA_INC}
-    ${DRAMSYS_UTILS_INC}
-    SYSTEM ${SYSTEMC_INCLUDE}
 )
 
 target_compile_definitions(noxim_dramsys PRIVATE
-    DRAMSYS_RESOURCE_DIR="${DRAMSYS_RESOURCE_DIR}"
+    DRAMSYS_RESOURCE_DIR="${dramsys_SOURCE_DIR}/configs"
 )
 
-target_link_libraries(noxim_dramsys
-    PRIVATE
-    dramsys
-    drampwr
-    sqlite3
-    systemc
-    ${YAML_CPP_LIB}
+find_package(Threads REQUIRED)
+
+target_link_libraries(noxim_dramsys PRIVATE
+    noxim
+    DRAMSys::DRAMSys
     Threads::Threads
 )
 
-# Copy configs directory to build
+# Copy configs directory to build (for DRAMSys path resolution)
 file(COPY configs DESTINATION ${CMAKE_BINARY_DIR})

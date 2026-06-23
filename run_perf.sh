@@ -27,13 +27,25 @@ if [ "${1:-}" == "--randomized" ]; then
 fi
 
 export SC_SIGNAL_WRITE_CHECK=DISABLE
-export LD_LIBRARY_PATH="/data/zhuo.wang/DRAMSys/install/lib:/data/zhuo.wang/systemc302_v2_clean/lib-linux64"
+
+# ---- Find cmake >= 3.25 (required by DRAMSys) ----
+CMAKE=""
+for c in /data/zhuo.wang/.local/bin/cmake cmake cmake3; do
+    ver=$("$c" --version 2>/dev/null | sed -n 's/cmake version *//p')
+    if dpkg --compare-versions "$ver" ge "3.25.0" 2>/dev/null; then
+        CMAKE="$c"
+        break
+    fi
+done
+if [ -z "$CMAKE" ]; then
+    echo "ERROR: cmake >= 3.25 required. Install via: pip3 install cmake" >&2
+    exit 1
+fi
 
 # ---- Build ----
-echo "=== Building ==="
-cd "$BUILD_DIR"
-cmake .. -DCMAKE_BUILD_TYPE=Release > /dev/null 2>&1
-make -j$(nproc) 2>&1 | tail -1
+echo "=== Building (cmake $($CMAKE --version | head -1)) ==="
+$CMAKE -S "$(cd "$(dirname "$0")" && pwd)" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release > /dev/null 2>&1
+$CMAKE --build "$BUILD_DIR" -j$(nproc) 2>&1 | tail -1
 echo ""
 
 # ---- Test runner ----
@@ -128,6 +140,9 @@ gen_vcd() {
         --noc-read --vcd "$VCD_DIR/$name" $extra > /dev/null 2>&1
     ls -lh "$VCD_DIR/$name.vcd"
 }
+
+# Run from build directory so default config path ../configs/ resolves correctly
+cd "$BUILD_DIR"
 
 # ---- Performance Tests ----
 if [ "${1:-}" != "--vcd-only" ]; then
