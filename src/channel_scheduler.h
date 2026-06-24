@@ -33,20 +33,23 @@ struct BankRowState {
 };
 
 // ---------------------------------------------------------------------------
-// Address decode helpers (matching DRAMSys memspec_ddr4_8ch)
-//   ROW_BIT:   [19..33] -> (addr >> 19) & 0x7FFF
-//   BANK_BIT:  [17..18] -> (addr >> 17) & 0x3
-//   BG_BIT:    [15..16] -> (addr >> 15) & 0x3
-//   CHAN_BIT:  [12..14] -> (addr >> 12) & 0x7
+// Address decode helpers (matching DRAMSys memspec_ddr4_16ch)
+//   ROW_BIT:   [20..33] -> (addr >> 20) & 0x3FFF
+//   BANK_BIT:  [18..19] -> (addr >> 18) & 0x3
+//   BG_BIT:    [16..17] -> (addr >> 16) & 0x3
+//   CHAN_BIT:  [12..15] -> (addr >> 12) & 0xF
 // ---------------------------------------------------------------------------
 struct AddrDecode {
-    static inline int  bg(uint64_t addr)    { return (addr >> 15) & 0x3; }
-    static inline int  bank(uint64_t addr)  { return (addr >> 17) & 0x3; }
-    static inline int  row(uint64_t addr)   { return (addr >> 19) & 0x7FFF; }
-    static inline int  channel(uint64_t a)  { return (a >> 12) & 0x7; }
+    static inline int  bg(uint64_t addr)    { return (addr >> 16) & 0x3; }
+    static inline int  bank(uint64_t addr)  { return (addr >> 18) & 0x3; }
+    static inline int  row(uint64_t addr)   { return (addr >> 20) & 0x3FFF; }
+    static inline int  channel(uint64_t a)  { return (a >> 12) & 0xF; }
     static const int NUM_BG  = 4;
     static const int NUM_BANK = 16;
 };
+
+// Topology: number of DDR channels (must match DRAMSys config)
+static constexpr int NUM_CHANNELS = 16;
 
 // ---------------------------------------------------------------------------
 // ChannelScheduler SC_MODULE

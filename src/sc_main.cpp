@@ -10,7 +10,7 @@
 #include <cstdlib>
 
 #include "traffic_pe.h"
-#include "xbar_4x8.h"
+#include "xbar.h"
 #include "channel_scheduler.h"
 #include "dram_pe.h"
 #include "DramInterface.h"
@@ -37,6 +37,7 @@ struct Args {
     int    baseJitter    = 0;
     int    randSeed      = 1;
     int    multiRun      = 1;
+    int    burstSize     = 0;
     string vcdFile;
 };
 
@@ -63,6 +64,7 @@ static Args parseArgs(int argc, char** argv)
         else if (arg == "--rand-seed" && i + 1 < argc) args.randSeed = atoi(argv[++i]);
         else if (arg == "--multi-run" && i + 1 < argc) args.multiRun = atoi(argv[++i]);
         else if (arg == "--vcd" && i + 1 < argc) args.vcdFile = argv[++i];
+        else if (arg == "--burst-size" && i + 1 < argc) args.burstSize = atoi(argv[++i]);
         else if (arg == "-h" || arg == "--help") {
             cout << "Usage: " << argv[0] << " [opts]\n"
                  << "  --dram-config <path>  DRAMSys JSON config\n"
@@ -79,6 +81,7 @@ static Args parseArgs(int argc, char** argv)
                  << "  --base-jitter <N>     Address offset jitter (blocks)\n"
                  << "  --rand-seed <N>       Random seed\n"
                  << "  --multi-run <N>       Number of runs (for statistics)\n"
+                 << "  --burst-size <bytes>  Burst size (0 = disabled, default)\n"
                  << "  --vcd <file>          VCD trace\n"
                  << endl;
             exit(0);
@@ -96,13 +99,13 @@ int sc_main(int argc, char** argv)
 
     string dramConfig = args.dramConfig;
     if (dramConfig.empty())
-        dramConfig = "../configs/dramsys_ddr4_8ch.json";
+        dramConfig = "../configs/dramsys_ddr4_16ch.json";
 
     string modeStr = interleave ? "Interleave (block=" + to_string(args.blockSize) + "B)"
                    : args.modeA  ? "No-interleave (all->ch0)"
                    : "No-interleave (per-ch)";
 
-    cout << "\n=== 4PE × 8ch Xbar + ChannelScheduler + DRAMSys ===" << endl;
+    cout << "\n=== 4PE × 16ch Xbar + ChannelScheduler + DRAMSys ===" << endl;
     cout << "  Mode: " << modeStr << endl;
     cout << "  PEs: " << args.numPEs << endl;
     cout << "  Transactions/PE: " << args.nocTx << endl;
@@ -115,19 +118,19 @@ int sc_main(int argc, char** argv)
         cerr << "ERROR: DramInterface init failed" << endl;
         return 1;
     }
-    dramIf.getDramsys()->setThreadCount(8);
+    dramIf.getDramsys()->setThreadCount(16);
 
     // ---- Clock ----
     sc_clock clk("clk", args.clockPeriod, SC_NS);
     sc_signal<bool> rst("rst");
 
     // ---- 4×8 Crossbar ----
-    Xbar4x8 xbar("xbar");
+    Xbar xbar("xbar");
     xbar.clock(clk);
     xbar.reset(rst);
 
     // ---- 8 Channel Schedulers ----
-    static const int NUM_CH = 8;
+    static const int NUM_CH = 16;
     ChannelScheduler* sched[NUM_CH];
     for (int ch = 0; ch < NUM_CH; ++ch) {
         sched[ch] = new ChannelScheduler(
@@ -156,7 +159,8 @@ int sc_main(int argc, char** argv)
         auto* p = new TrafficPE(
             sc_module_name(("PE" + to_string(pe)).c_str()),
             pe, args.nocTx, base, 0.0, args.is_read, data_len,
-            args.clockPeriod, args.peJitter, args.baseJitter);
+            args.clockPeriod, args.peJitter, args.baseJitter,
+            args.burstSize);
         p->clock(clk);
         p->bindXbar(&xbar);
         if (interleave)
@@ -170,7 +174,8 @@ int sc_main(int argc, char** argv)
     DramPE* drams[NUM_CH];
     for (int ch = 0; ch < NUM_CH; ++ch) {
         drams[ch] = new DramPE(
-            sc_module_name(("DramPE" + to_string(ch)).c_str()), ch, sched[ch]);
+            sc_module_name(("DramPE" + to_string(ch)).c_str()), ch, sched[ch],
+            args.clockPeriod);
         drams[ch]->clock(clk);
         drams[ch]->reset(rst);
         auto& sock = dramIf.getDramsys()->getArbiterTargetSocket();
@@ -195,13 +200,14 @@ int sc_main(int argc, char** argv)
     // ---- Run ----
     cout << "\n--- Starting simulation ---" << endl;
     rst.write(1);
-    sc_start(10, SC_NS);
+    sc_start(10 * args.clockPeriod, SC_NS);
     rst.write(0);
     sc_time t_start = sc_time_stamp();
 
     sc_time timeout(args.maxCycles * args.clockPeriod, SC_NS);
+    sc_time pollInterval(100 * args.clockPeriod, SC_NS);
     while (true) {
-        sc_start(sc_time(100, SC_NS));
+        sc_start(pollInterval);
 
         int totalSent = args.nocTx * args.numPEs;
         uint64_t totalCompleted = 0;
@@ -222,7 +228,7 @@ int sc_main(int argc, char** argv)
     // Drain
     cout << "  [Drain]..." << endl;
     for (int d = 0; d < 200; ++d) {
-        sc_start(sc_time(100, SC_NS));
+        sc_start(pollInterval);
         bool allIdle = dramIf.getDramsys()->idle();
         bool noPending = true;
         for (int ch = 0; ch < NUM_CH; ++ch)

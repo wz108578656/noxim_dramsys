@@ -33,7 +33,8 @@ public:
     sc_in_clk   clock;
     sc_in<bool> reset;
 
-    DramPE(sc_module_name name, int channel, ChannelScheduler* sched);
+    DramPE(sc_module_name name, int channel, ChannelScheduler* sched,
+           double clock_period = 1.0);
 
     void bindToDramsys(void* tSocket, int tag);
 
@@ -56,6 +57,7 @@ private:
     uint64_t m_bytes;
 
     ChannelScheduler* m_scheduler;
+    double m_clockPeriod;
 
     SimpleMM* m_mm;
     std::deque<PendingTx> m_pending;

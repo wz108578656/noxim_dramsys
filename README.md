@@ -1,20 +1,20 @@
 # noxim_dramsys
 
-4 PE × 8ch ChannelScheduler + DRAMSys cycle-accurate DRAM bandwidth simulation.
+4 PE × 16ch Crossbar + ChannelScheduler + DRAMSys cycle-accurate DRAM bandwidth simulation.
 
 ## Architecture
 
 ```
-TrafficPE[0..3] (4 PEs, flat address generator)
+TrafficPE[0..3] (4 PEs, flat address generator, burst support)
     │
     ▼
-  4×8 Crossbar (per-PE buf depth=2, 8× per-channel RR SC_METHOD)
+  4×16 Crossbar (per-PE-per-channel buf depth 16, 16× per-channel RR SC_METHOD)
     │
-    +--- ChannelScheduler[0..7] (RR / row-hit arbitration)
+    +--- ChannelScheduler[0..15] (RR / row-hit arbitration)
     |        |
     |        ▼
-    |    DramPE[0..7] → nb_transport_fw → DRAMSys Arbiter (Reorder)
-    |                                      → DDR4-1866/4000 8ch
+    |    DramPE[0..15] → nb_transport_fw → DRAMSys Arbiter (Reorder)
+    |                                      → DDR4-1866 16ch
     |
     └─ Each scheduler: 4 per-PE queues, [bank,row] tracking,
        age-based anti-starvation (default 16 cyc)
@@ -22,15 +22,16 @@ TrafficPE[0..3] (4 PEs, flat address generator)
 
 | Component | File | Description |
 |-----------|------|-------------|
-| TrafficPE | `src/traffic_pe.h/cpp` | Flat-address ReqEntry generator, sends via xbar |
-| Xbar4x8 | `src/xbar_4x8.h/cpp` | 4×8 crossbar: per-PE buffer (depth 2) + 8 independent per-channel RR SC_METHODs |
+| TrafficPE | `src/traffic_pe.h/cpp` | Flat-address ReqEntry generator, burst split, sends via xbar |
+| Xbar | `src/xbar.h/cpp` | 4×16 crossbar: per-PE-per-channel buffer (depth 16) + per-channel RR SC_METHOD |
 | ChannelScheduler | `src/channel_scheduler.h/cpp` | Per-channel scheduler: RR/row-hit arbitration, anti-starvation |
 | DramPE | `src/dram_pe.h/cpp` | Pull ReqEntry from scheduler → TLM AT protocol to DRAMSys |
 | DramInterface | `src/DramInterface.h/cpp` | DRAMSys wrapper, b_transport verification |
 
 **Data flow:**
 ```
-PE → ReqEntry → Xbar route() (per-PE buf, depth 2) → per-channel RR SC_METHOD
+PE → splitBurst → vector<ReqEntry> → xbar routeBatch() (per-PE-per-channel buf)
+→ per-channel RR SC_METHOD (all 16 channels in 1 cycle)
 → ChannelScheduler[ch] (arbitrate) → DramPE[ch] → nb_transport_fw (AT, Arbiter::Reorder)
 → DRAMSys Controller → DDR4
 ```
@@ -45,8 +46,11 @@ PE → ReqEntry → Xbar route() (per-PE buf, depth 2) → per-channel RR SC_MET
 | `--addr-mode <mode>` | nointerleave | `nointerleave` or `interleave` |
 | `--block-size <N>` | 256 | Interleave block size |
 | `--tx-size <N>` | 256 | Transaction size (bytes) |
+| `--burst-size <N>` | 0 | Burst size (bytes, 0 = disabled). Splits into per-block fragments |
 | `--arb-mode <mode>` | rowhit | `rronly` or `rowhit` |
 | `--age-threshold <N>` | 16 | Anti-starvation age (cycles) |
+| `--max-qdepth <N>` | 16 | Scheduler queue depth per PE |
+| `--base-shift <N>` | 0 | Address offset shift for row-staggered tests |
 | `--noc-mode-a` | off | Force all traffic to channel 0 |
 | `--noc-read` | off | READ transactions |
 | `--max-cycles <N>` | 100000 | Max simulation cycles |
@@ -59,34 +63,46 @@ PE → ReqEntry → Xbar route() (per-PE buf, depth 2) → per-channel RR SC_MET
 
 ## Performance Results
 
-All tests: READ, 256B, 1.0ns clock (1GHz xbar), DDR4-1866 ×64 8ch (119.4 GB/s aggregate),
-maxInFlight=64, Arbiter::Reorder. Bus utilization from DRAMSys controller AVG BW / MAX BW.
+All tests: READ, 256B, 1.0ns clock (1GHz xbar), DDR4-1866 ×64 16ch (955.2 Gb/s / 119.4 GB/s peak),
+`--noc-tx 4096 --burst-size 4096`, Arbiter::Reorder.
+Bus utilization from DRAMSys controller AVG BW / MAX BW.
 
-### 1GHz — Interleave 256B, RR-ONLY vs ROW-HIT
+### 16ch + Burst 4096 — Interleave 256B, ROW-HIT vs RR-ONLY
 
 | Test | Arb mode | E2E time | Bus util | Bandwidth |
 |:----|:---------|:--------:|:--------:|:---------:|
-| Same-row | ROW-HIT | 9400 ns | 92.3% | 110.3 GB/s |
-| Same-row | RR-ONLY | 9200 ns | 94.3% | 112.6 GB/s |
-| Row-staggered | ROW-HIT | 10300 ns | **84.4%** | **100.7 GB/s** |
-| Row-staggered | RR-ONLY | 11900 ns | 73.1% | 87.3 GB/s |
+| Same-row | ROW-HIT | 4500 ns | 95.2% | 113.7 GB/s |
+| Same-row | RR-ONLY | 4500 ns | 95.2% | 113.7 GB/s |
+| Row-staggered | ROW-HIT | 4600 ns | **93.2%** | **111.3 GB/s** |
+| Row-staggered | RR-ONLY | 4900 ns | 87.6% | 104.7 GB/s |
 
-ROW-HIT outperforms RR-ONLY by **+15.4%** under row-staggered traffic (`--base-shift 3`).
-Under same-row traffic both saturate DRAM to ~92-94% regardless of arbiter mode.
+ROW-HIT outperforms RR-ONLY by **+6.1%** (4600 vs 4900 ns) under row-staggered traffic (`--base-shift 3`).
+Under same-row traffic both saturate DRAM to ~95% regardless of arbiter mode (all requests are row-hits).
 
-### Randomized (PE jitter + addr offset, 5-run min/max/avg)
+### 16ch vs 8ch comparison
 
-Same conditions as baseline plus `--pe-jitter 10 --base-jitter 100`, 5 runs with seeds 1-5.
+| Config | Row-staggered ROW-HIT | Row-staggered RR-ONLY | ROW-HIT benefit |
+|--------|:---------------------:|:---------------------:|:---------------:|
+| 8ch, no burst (old) | 10300 ns (84.4%) | 11900 ns (73.1%) | +15.4% |
+| **16ch, burst 4096** | **4600 ns (93.2%)** | **4900 ns (87.6%)** | **+6.1%** |
 
-| Test | Arb mode | E2E (min/avg/max) | Util (min/max) |
-|:----|:---------|:-----------------:|:--------------:|
-| Same-row | ROW-HIT | 9300 / 9300 / 9300 | 93.3% |
-| Same-row | RR-ONLY | 9200 / 9200 / 9200 | 94.3% |
-| Row-staggered | ROW-HIT | 9900 / **10000** / 10100 | 86.0–87.7% |
-| Row-staggered | RR-ONLY | 11200 / **11340** / 11500 | 75.6–77.7% |
+16ch with burst achieves **2.2× faster E2E** than 8ch baseline.
+ROW-HIT relative benefit shrinks from 15.4% to 6.1% due to wider channel count reducing per-channel
+queue depth for reordering, but absolute bandwidth improves from 100.7→111.3 GB/s (+10.5%).
 
-ROW-HIT advantage under row-staggered: **+13.4%** (avg 10000 vs 11340 ns), consistent with baseline.
-Same-row cases show zero variance — address offset has no effect when all PEs hit the same row.
+### Key Design Details
+
+**Burst mode.** `--burst-size 4096` splits one PE request into 16×256B fragments via `splitBurst()`,
+one per DDR channel. `routeBatch()` atomically pushes all fragments to per-channel PE buffers.
+The xbar drains all 16 channels in a single clock cycle, enabling simultaneous multi-channel injection.
+
+**Per-channel PE buffers.** `m_pe_buf[4][16]` instead of a single queue per PE. Each channel has an
+independent drain path, preventing head-of-line blocking (one blocked channel cannot stall the other 15).
+
+**Row-hit arbitration.** The ChannelScheduler implements 3-phase arbitration:
+1. Row-hit priority — prefer requests hitting an already-open row
+2. Anti-starvation — aged requests (default 16 cycles) bypass row-hit priority
+3. Round-robin — fair scheduling among 4 PE queues
 
 ```bash
 # Run yourself:
@@ -100,23 +116,20 @@ Same-row cases show zero variance — address offset has no effect when all PEs 
 noxim_dramsys/
 ├── CMakeLists.txt
 ├── configs/
-│   ├── dramsys_ddr4_8ch.json           DDR4-1866 8ch config
-│   ├── dramsys_ddr4_4000_8ch.json       DDR4-4000 8ch config
-│   ├── mcconfig_ddr4_8ch_tuned.json     Arbiter::Reorder, RequestBufferSize=64
-│   └── memspec_ddr4_*/                 Memory specs + address mappings
+│   ├── dramsys_ddr4_8ch.json            DDR4-1866 8ch config
+│   ├── dramsys_ddr4_16ch.json           DDR4-1866 16ch config
+│   └── memspec_ddr4_16ch/              16ch memory specs + address mappings
 ├── src/
 │   ├── sc_main.cpp                      Top-level
-│   ├── traffic_pe.h/cpp                 ReqEntry generator
-│   ├── xbar_4x8.h/cpp                  4×8 crossbar
+│   ├── traffic_pe.h/cpp                 ReqEntry generator with burst split
+│   ├── xbar.h/cpp                       4×16 crossbar (per-channel PE buffers)
 │   ├── channel_scheduler.h/cpp          Per-channel scheduler
 │   ├── dram_pe.h/cpp                    TLM bridge
 │   └── DramInterface.h/cpp              DRAMSys wrapper
 ├── run_perf.sh                          Performance test suite
 ├── vcd_backup/                          VCD waveform files
-│   ├── interleave_256B_rowstag_rowhit.vcd       Baseline ROW-HIT
-│   ├── interleave_256B_rowstag_rronly.vcd       Baseline RR-ONLY
-│   ├── interleave_256B_rowstag_rowhit_rand.vcd  Randomized ROW-HIT
-│   └── interleave_256B_rowstag_rronly_rand.vcd  Randomized RR-ONLY
+│   ├── rowstag_rowhit.vcd               Row-staggered ROW-HIT (16ch burst)
+│   └── rowstag_rronly.vcd               Row-staggered RR-ONLY (16ch burst)
 ```
 
 ## Quick Start
@@ -125,27 +138,26 @@ noxim_dramsys/
 cd build && cmake .. && make -j$(nproc)
 
 SC_SIGNAL_WRITE_CHECK=DISABLE \
-LD_LIBRARY_PATH=/data/zhuo.wang/DRAMSys/install/lib:/data/zhuo.wang/systemc302_v2_clean/lib-linux64 \
 ./noxim_dramsys --noc-tx 4096 --noc-read
 
-# DDR4-4000
-./noxim_dramsys --dram-config ../configs/dramsys_ddr4_4000_8ch.json --noc-tx 4096 --noc-read
+# Interleave + burst (16ch)
+./noxim_dramsys --noc-tx 4096 --burst-size 4096 \
+    --addr-mode interleave --block-size 256 --noc-read
 
-# Interleave
-./noxim_dramsys --noc-tx 4096 --addr-mode interleave --block-size 256 --noc-read
-
-# RR-only arb
-./noxim_dramsys --noc-tx 4096 --arb-mode rronly
+# Row-staggered + ROW-HIT comparison
+./noxim_dramsys --noc-tx 4096 --burst-size 4096 --noc-read \
+    --addr-mode interleave --block-size 256 --base-shift 3
+./noxim_dramsys --noc-tx 4096 --burst-size 4096 --noc-read \
+    --addr-mode interleave --block-size 256 --base-shift 3 --arb-mode rronly
 
 # VCD trace
-./noxim_dramsys --noc-tx 200 --vcd trace
+./noxim_dramsys --noc-tx 4096 --burst-size 4096 --vcd trace
 ```
 
 ## Dependencies
 
 - SystemC 3.0.2 (`/data/zhuo.wang/systemc302_v2_clean`)
 - DRAMSys 5.0 (`/data/zhuo.wang/DRAMSys`)
-- yaml-cpp 0.7.0 (`/data/zhuo.wang/noxim/libs/yaml-cpp`)
 
 ## Notes
 

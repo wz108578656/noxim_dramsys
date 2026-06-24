@@ -2,7 +2,7 @@
 // traffic_pe.cpp — Flat-address PE: generate ReqEntry → 4×8 crossbar
 // ============================================================================
 #include "traffic_pe.h"
-#include "xbar_4x8.h"
+#include "xbar.h"
 #include <iostream>
 
 using namespace std;
@@ -11,7 +11,8 @@ using namespace std;
 TrafficPE::TrafficPE(sc_module_name name, int pe_id, int num_tx,
                      uint64_t base_addr, double inj_rate_ns, bool is_read,
                      int data_len, double clock_period,
-                     int start_jitter, int base_jitter)
+                     int start_jitter, int base_jitter,
+                     int burst_size)
     : sc_module(name)
     , m_pe_id(pe_id)
     , m_num_tx(num_tx)
@@ -22,6 +23,7 @@ TrafficPE::TrafficPE(sc_module_name name, int pe_id, int num_tx,
     , m_clock_period(clock_period)
     , m_start_jitter(start_jitter)
     , m_base_jitter(base_jitter)
+    , m_burst_size(burst_size)
     , m_tx_sent(0)
 {
     SC_THREAD(run);
@@ -33,6 +35,37 @@ void TrafficPE::setAddrMode(AddrDecoder::Mode mode, int block_size)
 }
 
 // ---------------------------------------------------------------------------
+// splitBurst — decompose a burst request into per-block ReqEntry fragments
+// ---------------------------------------------------------------------------
+vector<ReqEntry> TrafficPE::splitBurst(uint64_t base_addr)
+{
+    int bs = (m_decoder.blockSize > 0) ? m_decoder.blockSize : m_data_len;
+    int n = (m_burst_size > 0) ? (m_burst_size / bs) : 1;
+
+    vector<ReqEntry> frags;
+    frags.reserve(n);
+
+    for (int b = 0; b < n; ++b) {
+        uint64_t addr = base_addr + static_cast<uint64_t>(b) * bs;
+        ReqEntry req;
+        req.address = addr;
+        req.channel = m_decoder.decode(addr);
+        req.src_pe  = m_pe_id;
+        req.tag     = m_burst_id * n + b;
+        req.is_write = !m_is_read;
+
+        uint32_t pattern = 0xDEAD0000 | (m_pe_id << 12) | (req.tag & 0xFFF);
+        for (int w = 0; w < 32; ++w)
+            req.data[w] = pattern + w;
+
+        frags.push_back(req);
+    }
+
+    m_burst_id++;
+    return frags;
+}
+
+// ---------------------------------------------------------------------------
 // run() — generate ReqEntry and send through crossbar to ChannelScheduler
 // ---------------------------------------------------------------------------
 void TrafficPE::run()
@@ -40,7 +73,9 @@ void TrafficPE::run()
     cout << "  [PE" << m_pe_id << "] " << m_num_tx << " tx"
          << ", base=0x" << hex << m_base_addr << dec
          << ", mode=" << (m_is_read ? "READ" : "WRITE")
-         << ", chShift=" << m_decoder.chShift;
+         << ", chShift=" << m_decoder.chShift
+         << (m_burst_size > 0 ? ", burst=" : "")
+         << (m_burst_size > 0 ? to_string(m_burst_size) : "");
 
     // --- Random start jitter ---
     if (m_start_jitter > 0) {
@@ -59,34 +94,28 @@ void TrafficPE::run()
 
     cout << endl;
 
-    for (int i = 0; i < m_num_tx; ++i) {
-        wait(clock.posedge_event());  // every transaction starts at posedge
+    for (int i = 0; i < m_num_tx; ) {
+        wait(clock.posedge_event());  // every burst starts at posedge
         uint64_t addr = m_base_addr + static_cast<uint64_t>(i) * m_data_len;
 
-        ReqEntry req;
-        req.address = addr;
-        req.channel = m_decoder.decode(addr);
-        req.src_pe  = m_pe_id;
-        req.tag     = i;
-        req.is_write = !m_is_read;
+        auto frags = splitBurst(addr);
 
-        // Data pattern for verification
-        uint32_t pattern = 0xDEAD0000 | (m_pe_id << 12) | (i & 0xFFF);
-        for (int w = 0; w < 32; ++w)
-            req.data[w] = pattern + w;
-
-        // Send through crossbar → scheduler (retry each cycle if busy)
+        // Atomic route — retry entire burst if xbar buffer full
         if (m_xbar) {
-            while (!m_xbar->route(m_pe_id, req))
+            while (!m_xbar->routeBatch(m_pe_id, frags))
                 wait(clock.posedge_event());
         }
 
-        m_tx_sent++;
+        int n = static_cast<int>(frags.size());
+        m_tx_sent += n;
+        i += n;
 
-        // VCD
-        m_sig_tx_sent.write(m_tx_sent);
-        m_sig_addr.write(addr);
-        m_sig_channel.write(req.channel);
+        // VCD: log first fragment's address and channel
+        if (!frags.empty()) {
+            m_sig_tx_sent.write(m_tx_sent);
+            m_sig_addr.write(addr);
+            m_sig_channel.write(frags[0].channel);
+        }
 
         if (m_inj_interval != SC_ZERO_TIME)
             wait(m_inj_interval);

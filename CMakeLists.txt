@@ -103,7 +103,7 @@ file(GLOB NOXIM_DRAMSYS_SRCS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/traffic_pe.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/dram_pe.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/channel_scheduler.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/xbar_4x8.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/xbar.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/sc_main.cpp"
 )
 

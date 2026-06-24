@@ -18,7 +18,7 @@ namespace DramIf
 class DramInterface : public sc_core::sc_module
 {
 public:
-    static constexpr int NUM_CHANNELS = 8;
+    static constexpr int NUM_CHANNELS = 16;
 
     DramInterface(sc_core::sc_module_name name,
                   const std::string& configJsonPath,
@@ -35,14 +35,17 @@ public:
     ::DRAMSys::DRAMSys* getDramsys() const { return m_dramsys; }
 
 private:
-    void b_transport_ch0(tlm::tlm_generic_payload&, sc_core::sc_time&);
-    void b_transport_ch1(tlm::tlm_generic_payload&, sc_core::sc_time&);
-    void b_transport_ch2(tlm::tlm_generic_payload&, sc_core::sc_time&);
-    void b_transport_ch3(tlm::tlm_generic_payload&, sc_core::sc_time&);
-    void b_transport_ch4(tlm::tlm_generic_payload&, sc_core::sc_time&);
-    void b_transport_ch5(tlm::tlm_generic_payload&, sc_core::sc_time&);
-    void b_transport_ch6(tlm::tlm_generic_payload&, sc_core::sc_time&);
-    void b_transport_ch7(tlm::tlm_generic_payload&, sc_core::sc_time&);
+    template <int CH>
+    void b_transport_ch(tlm::tlm_generic_payload& trans, sc_core::sc_time& delay) {
+        forwardToDramsys(CH, trans, delay);
+    }
+
+    template <int... Is>
+    void registerUpstreamSockets(std::integer_sequence<int, Is...>) {
+        ((m_upstream[Is].register_b_transport(
+            this, &DramInterface::b_transport_ch<Is>)), ...);
+    }
+
     void forwardToDramsys(int ch, tlm::tlm_generic_payload&, sc_core::sc_time&);
 
     ::DRAMSys::DRAMSys* m_dramsys = nullptr;

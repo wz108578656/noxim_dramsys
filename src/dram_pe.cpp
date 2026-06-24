@@ -14,13 +14,15 @@ using namespace sc_core;
 using namespace tlm;
 
 // ---------------------------------------------------------------------------
-DramPE::DramPE(sc_module_name name, int channel, ChannelScheduler* sched)
+DramPE::DramPE(sc_module_name name, int channel, ChannelScheduler* sched,
+               double clock_period)
     : sc_module(name)
     , m_channel(channel)
     , m_tag(0)
     , m_completed(0)
     , m_bytes(0)
     , m_scheduler(sched)
+    , m_clockPeriod(clock_period)
     , m_mm(new SimpleMM())
 {
     m_ini.register_nb_transport_bw(this, &DramPE::nb_transport_bw, m_tag);
@@ -70,15 +72,15 @@ void DramPE::process()
 
         // Translate address for DRAMSys
         uint64_t low = req.address & 0x1FFFFFFFULL;
-        uint64_t dramsys_addr = (low & ~(0x7ULL << 12))
+        uint64_t dramsys_addr = (low & ~(0xFULL << 12))
                               | (static_cast<uint64_t>(m_channel) << 12);
         trans->set_address(dramsys_addr);
 
         // VCD: request trace
         m_sig_req_addr.write(dramsys_addr);
-        m_sig_req_row.write((dramsys_addr >> 19) & 0x7FFF);
-        m_sig_req_bank.write(static_cast<int>((dramsys_addr >> 17) & 0x3));
-        m_sig_req_bg.write(static_cast<int>((dramsys_addr >> 15) & 0x3));
+        m_sig_req_row.write((dramsys_addr >> 20) & 0x3FFF);
+        m_sig_req_bank.write(static_cast<int>((dramsys_addr >> 18) & 0x3));
+        m_sig_req_bg.write(static_cast<int>((dramsys_addr >> 16) & 0x3));
         m_sig_req_cmd.write(req.is_write ? 0 : 1);
 
         trans->set_data_length(data_len);
@@ -86,9 +88,9 @@ void DramPE::process()
         trans->set_byte_enable_length(0);
         trans->set_dmi_allowed(false);
 
-        // AT: send BEGIN_REQ (1 cycle latency)
+        // AT: send BEGIN_REQ (1 cycle latency, derived from clock)
         tlm_phase phase = BEGIN_REQ;
-        sc_time delay = sc_time(1, SC_NS);
+        sc_time delay = sc_time(m_clockPeriod, SC_NS);
         tlm_sync_enum status = m_ini->nb_transport_fw(*trans, phase, delay);
 
         if (status == TLM_ACCEPTED && phase == BEGIN_REQ)
@@ -121,9 +123,9 @@ tlm_sync_enum DramPE::nb_transport_bw(int /*tag*/,
             // VCD: response trace
             uint64_t resp_addr = trans.get_address();
             m_sig_resp_addr.write(resp_addr);
-            m_sig_resp_row.write((resp_addr >> 19) & 0x7FFF);
-            m_sig_resp_bank.write(static_cast<int>((resp_addr >> 17) & 0x3));
-            m_sig_resp_bg.write(static_cast<int>((resp_addr >> 15) & 0x3));
+            m_sig_resp_row.write((resp_addr >> 20) & 0x3FFF);
+            m_sig_resp_bank.write(static_cast<int>((resp_addr >> 18) & 0x3));
+            m_sig_resp_bg.write(static_cast<int>((resp_addr >> 16) & 0x3));
             m_sig_resp_cmd.write(trans.get_command() == TLM_WRITE_COMMAND ? 0 : 1);
 
             delete[] trans.get_data_ptr();

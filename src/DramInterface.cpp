@@ -6,6 +6,7 @@
 #include <iostream>
 #include <fstream>
 #include <memory>
+#include <utility>
 
 #include <systemc>
 #include <tlm>
@@ -49,14 +50,7 @@ DramInterface::DramInterface(sc_core::sc_module_name name,
             return;
         }
 
-        m_upstream[0].register_b_transport(this, &DramInterface::b_transport_ch0);
-        m_upstream[1].register_b_transport(this, &DramInterface::b_transport_ch1);
-        m_upstream[2].register_b_transport(this, &DramInterface::b_transport_ch2);
-        m_upstream[3].register_b_transport(this, &DramInterface::b_transport_ch3);
-        m_upstream[4].register_b_transport(this, &DramInterface::b_transport_ch4);
-        m_upstream[5].register_b_transport(this, &DramInterface::b_transport_ch5);
-        m_upstream[6].register_b_transport(this, &DramInterface::b_transport_ch6);
-        m_upstream[7].register_b_transport(this, &DramInterface::b_transport_ch7);
+        registerUpstreamSockets(std::make_integer_sequence<int, NUM_CHANNELS>{});
 
         m_configured = true;
         std::cout << "  [DramInterface] DRAMSys initialized OK" << std::endl;
@@ -80,26 +74,17 @@ void DramInterface::forwardToDramsys(int channel, tlm_generic_payload& trans, sc
         return;
     }
     uint64_t origAddr = trans.get_address();
-    uint64_t chMask = (0x7ULL << m_channelShift);
+    uint64_t chMask = (0xFULL << m_channelShift);
     uint64_t chanAddr = (static_cast<uint64_t>(channel) << m_channelShift) | (origAddr & ~chMask);
     trans.set_address(chanAddr);
     m_dramsys->b_transport(trans, delay);
     trans.set_address(origAddr);
 }
 
-void DramInterface::b_transport_ch0(tlm_generic_payload& trans, sc_time& delay) { forwardToDramsys(0, trans, delay); }
-void DramInterface::b_transport_ch1(tlm_generic_payload& trans, sc_time& delay) { forwardToDramsys(1, trans, delay); }
-void DramInterface::b_transport_ch2(tlm_generic_payload& trans, sc_time& delay) { forwardToDramsys(2, trans, delay); }
-void DramInterface::b_transport_ch3(tlm_generic_payload& trans, sc_time& delay) { forwardToDramsys(3, trans, delay); }
-void DramInterface::b_transport_ch4(tlm_generic_payload& trans, sc_time& delay) { forwardToDramsys(4, trans, delay); }
-void DramInterface::b_transport_ch5(tlm_generic_payload& trans, sc_time& delay) { forwardToDramsys(5, trans, delay); }
-void DramInterface::b_transport_ch6(tlm_generic_payload& trans, sc_time& delay) { forwardToDramsys(6, trans, delay); }
-void DramInterface::b_transport_ch7(tlm_generic_payload& trans, sc_time& delay) { forwardToDramsys(7, trans, delay); }
-
 bool DramInterface::verifyRead(int channel, uint64_t addr, void* data, unsigned int len)
 {
     if (!m_dramsys) return false;
-    uint64_t chMask = (0x7ULL << m_channelShift);
+    uint64_t chMask = (0xFULL << m_channelShift);
     uint64_t chanAddr = (static_cast<uint64_t>(channel) << m_channelShift) | (addr & ~chMask);
     tlm_generic_payload trans;
     trans.set_command(TLM_READ_COMMAND);

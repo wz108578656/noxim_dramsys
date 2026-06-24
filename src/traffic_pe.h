@@ -7,9 +7,10 @@
 #include <systemc.h>
 #include <queue>
 #include <cstdint>
+#include <vector>
 #include "channel_scheduler.h"
 
-class Xbar4x8;
+class Xbar;
 
 // Address decoder: flat address → channel (configurable mode)
 struct AddrDecoder {
@@ -32,7 +33,7 @@ struct AddrDecoder {
     }
 
     int decode(uint64_t addr) const {
-        return static_cast<int>((addr >> chShift) & 0x7);
+        return static_cast<int>((addr >> chShift) & 0xF);
     }
 };
 
@@ -46,11 +47,12 @@ public:
     TrafficPE(sc_module_name name, int pe_id, int num_tx,
               uint64_t base_addr, double inj_rate_ns, bool is_read,
               int data_len, double clock_period = 1.0,
-              int start_jitter = 0, int base_jitter = 0);
+              int start_jitter = 0, int base_jitter = 0,
+              int burst_size = 0);
 
     void setAddrMode(AddrDecoder::Mode mode, int block_size = 4096);
     void setBaseAddr(uint64_t base) { m_base_addr = base; }
-    void bindXbar(Xbar4x8* xb) { m_xbar = xb; }
+    void bindXbar(Xbar* xb) { m_xbar = xb; }
 
     uint64_t tx_sent() const { return m_tx_sent; }
     int  pe_id() const { return m_pe_id; }
@@ -60,6 +62,7 @@ public:
 
 private:
     void run();   // SC_THREAD: generate ReqEntry → send via crossbar
+    std::vector<ReqEntry> splitBurst(uint64_t base_addr);
 
     int  m_pe_id;
     int  m_num_tx;
@@ -69,11 +72,14 @@ private:
     bool m_is_read;
 
     AddrDecoder m_decoder;
-    Xbar4x8* m_xbar = nullptr;
+    Xbar* m_xbar = nullptr;
     double m_clock_period;
 
     int  m_start_jitter;
     int  m_base_jitter;
+    int  m_burst_size;
+
+    int  m_burst_id = 0;
 
     uint64_t m_tx_sent;
 
