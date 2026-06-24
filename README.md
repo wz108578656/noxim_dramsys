@@ -90,6 +90,24 @@ Under same-row traffic both saturate DRAM to ~95% regardless of arbiter mode (al
 ROW-HIT relative benefit shrinks from 15.4% to 6.1% due to wider channel count reducing per-channel
 queue depth for reordering, but absolute bandwidth improves from 100.7→111.3 GB/s (+10.5%).
 
+### Randomized Jitter Performance
+
+Same tests with `--pe-jitter 10 --base-jitter 100` (random PE start delay + random address offset).
+
+| Test | Arb mode | E2E time | Bus util | Bandwidth | vs deterministic |
+|:----|:---------|:--------:|:--------:|:---------:|:----------------:|
+| Same-row | ROW-HIT | 4610 ns | 95.25% | 113.73 GB/s | +110 ns |
+| Same-row | RR-ONLY | 4610 ns | 95.25% | 113.73 GB/s | +110 ns |
+| Row-staggered | ROW-HIT | 4710 ns | 93.23% | 111.31 GB/s | +110 ns |
+| Row-staggered | RR-ONLY | 5010 ns | 87.64% | 104.65 GB/s | +110 ns |
+
+All configurations show a consistent +110 ns vs deterministic — from `--base-jitter 100` randomizing
+addresses across DRAM rows (up to 25.6 KB offset), adding page-miss latency (`tRCD` + `tRP`).
+PE startup jitter (`--pe-jitter 10`, average ~5 cycles/PE) adds minimal overhead.
+
+ROW-HIT benefit under randomization: **(5010−4710)/4710 = 6.4%** vs 6.1% deterministic — row-hit arbitration
+is preserved because each PE's own stream retains local row locality even with random base jitter.
+
 ### Key Design Details
 
 **Burst mode.** `--burst-size 4096` splits one PE request into 16×256B fragments via `splitBurst()`,
